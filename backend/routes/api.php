@@ -32,5 +32,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/games', [GameController::class, 'index']);
         Route::post('/games', [GameController::class, 'store']);
         Route::get('/games/{game:public_id}', [GameController::class, 'show']);
+        Route::post('/games/{game:public_id}/moves', [GameController::class, 'storeMove']);
+        Route::post('/games/{game:public_id}/resign', [GameController::class, 'resign']);
     });
 });

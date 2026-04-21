@@ -6,14 +6,19 @@ use App\Enums\GameMode;
 use App\Enums\GameResult;
 use App\Enums\GameStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\StoreGameMoveRequest;
 use App\Http\Requests\StoreGameRequest;
 use App\Models\Game;
+use App\Services\AiGameService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 class GameController extends Controller
 {
+    public function __construct(private readonly AiGameService $aiGameService) {}
+
     public function index(Request $request): JsonResponse
     {
         $request->validate([
@@ -84,8 +89,12 @@ class GameController extends Controller
             'started_at' => $mode === GameMode::Ai ? now() : null,
         ]);
 
+        if ($mode === GameMode::Ai) {
+            $game = $this->aiGameService->initialize($game);
+        }
+
         return response()->json([
-            'game' => $this->formatGame($game->load(['whitePlayer:id,username,name', 'blackPlayer:id,username,name'])),
+            'game' => $this->formatGame($game->load(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name', 'moves.user:id,username,name']), true),
         ], 201);
     }
 
@@ -108,6 +117,55 @@ class GameController extends Controller
         return response()->json([
             'game' => $this->formatGame($game, true),
         ]);
+    }
+
+    public function storeMove(StoreGameMoveRequest $request, Game $game): JsonResponse
+    {
+        $this->authorizeGameAccess($request->user()->id, $game);
+
+        try {
+            $game = $this->aiGameService->submitPlayerMove(
+                game: $game,
+                user: $request->user(),
+                from: $request->string('from')->toString(),
+                to: $request->string('to')->toString(),
+                promotion: $request->input('promotion'),
+                stateVersion: $request->integer('state_version'),
+            );
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'game' => $this->formatGame($game, true),
+        ]);
+    }
+
+    public function resign(Request $request, Game $game): JsonResponse
+    {
+        $this->authorizeGameAccess($request->user()->id, $game);
+
+        try {
+            $game = $this->aiGameService->resign($game, $request->user());
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'game' => $this->formatGame($game, true),
+        ]);
+    }
+
+    private function authorizeGameAccess(int $userId, Game $game): void
+    {
+        abort_unless(
+            in_array($userId, [$game->created_by_user_id, $game->white_player_id, $game->black_player_id], true),
+            403
+        );
     }
 
     private function formatGame(Game $game, bool $includeMoves = false): array
