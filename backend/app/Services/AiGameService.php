@@ -17,6 +17,12 @@ use RuntimeException;
 
 class AiGameService
 {
+    private const REPETITION_PENALTY = 180;
+
+    private const RECENT_REPEAT_PENALTY = 90;
+
+    private const FALLBACK_SEARCH_BUDGET_SECONDS = 0.35;
+
     private const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
     private const RANKS = ['8', '7', '6', '5', '4', '3', '2', '1'];
@@ -29,6 +35,11 @@ class AiGameService
         Piece::QUEEN => 900,
         Piece::KING => 20000,
     ];
+
+    public function __construct(
+        private readonly StockfishService $stockfishService,
+        private readonly GameRewardService $gameRewardService,
+    ) {}
 
     public function initialize(Game $game): Game
     {
@@ -149,6 +160,8 @@ class AiGameService
                 'ended_at' => now(),
             ])->save();
 
+            $this->gameRewardService->settleAiRewards($lockedGame);
+
             return $lockedGame->fresh(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name', 'moves.user:id,username,name']);
         });
     }
@@ -235,6 +248,8 @@ class AiGameService
             'winner_user_id' => $winnerUserId,
             'ended_at' => now(),
         ])->save();
+
+        $this->gameRewardService->settleAiRewards($game);
     }
 
     private function resolvePlayerColor(Game $game, User $user): ?string
@@ -270,8 +285,16 @@ class AiGameService
 
     private function chooseBestMove(Chess $chess, Game $game): ?Move
     {
+        $engineMove = $this->chooseStockfishMove($chess, $game);
+
+        if ($engineMove !== null) {
+            return $engineMove;
+        }
+
         $skill = $game->ai_skill_level ?? 6;
         $aiColor = $this->resolveAiColor($game);
+        $positionCounts = $this->positionCountsForGame($game);
+        $recentUciMoves = $this->recentUciMovesForGame($game);
 
         if ($aiColor === null) {
             return null;
@@ -284,8 +307,10 @@ class AiGameService
         }
 
         usort($moves, fn (Move $left, Move $right) => $this->tacticalScore($right) <=> $this->tacticalScore($left));
+        $moves = array_slice($moves, 0, $this->candidateMoveLimit($skill));
 
         $depth = $this->searchDepth($skill);
+        $deadline = microtime(true) + $this->fallbackSearchBudget($skill);
         $bestScore = -INF;
         $bestMoves = [];
 
@@ -302,7 +327,9 @@ class AiGameService
                 alpha: -INF,
                 beta: INF,
                 maximizingColor: $aiColor,
+                deadline: $deadline,
             );
+            $score -= $this->repetitionPenalty($chess, $positionCounts, $recentUciMoves, $move);
 
             $chess->undo();
 
@@ -322,15 +349,39 @@ class AiGameService
             return null;
         }
 
-        $spread = $skill >= 16 ? 1 : max(1, 4 - intdiv($skill, 5));
+        $spread = match (true) {
+            $skill >= 18 => 1,
+            $skill >= 12 => 2,
+            $skill >= 8 => 3,
+            default => 4,
+        };
         $choicePool = array_slice($bestMoves, 0, $spread);
 
         return $choicePool[array_rand($choicePool)];
     }
 
-    private function minimax(Chess $chess, int $depth, float $alpha, float $beta, string $maximizingColor): float
+    private function chooseStockfishMove(Chess $chess, Game $game): ?Move
     {
-        if ($depth === 0 || $chess->gameOver()) {
+        $uci = $this->stockfishService->bestMove($chess->fen(), $game->ai_skill_level ?? 6);
+
+        if ($uci === null) {
+            return null;
+        }
+
+        foreach ($chess->moves() as $move) {
+            $moveUci = $move->from.$move->to.($move->promotion ?? '');
+
+            if ($moveUci === $uci) {
+                return $move;
+            }
+        }
+
+        return null;
+    }
+
+    private function minimax(Chess $chess, int $depth, float $alpha, float $beta, string $maximizingColor, float $deadline): float
+    {
+        if ($depth === 0 || $chess->gameOver() || microtime(true) >= $deadline) {
             return $this->evaluatePosition($chess, $maximizingColor);
         }
 
@@ -338,6 +389,7 @@ class AiGameService
         $moves = $chess->moves();
 
         usort($moves, fn (Move $left, Move $right) => $this->tacticalScore($right) <=> $this->tacticalScore($left));
+        $moves = array_slice($moves, 0, 12);
 
         if ($turn === $maximizingColor) {
             $value = -INF;
@@ -349,7 +401,7 @@ class AiGameService
                     continue;
                 }
 
-                $value = max($value, $this->minimax($chess, $depth - 1, $alpha, $beta, $maximizingColor));
+                $value = max($value, $this->minimax($chess, $depth - 1, $alpha, $beta, $maximizingColor, $deadline));
                 $chess->undo();
                 $alpha = max($alpha, $value);
 
@@ -370,7 +422,7 @@ class AiGameService
                 continue;
             }
 
-            $value = min($value, $this->minimax($chess, $depth - 1, $alpha, $beta, $maximizingColor));
+            $value = min($value, $this->minimax($chess, $depth - 1, $alpha, $beta, $maximizingColor, $deadline));
             $chess->undo();
             $beta = min($beta, $value);
 
@@ -438,9 +490,29 @@ class AiGameService
     private function searchDepth(int $skill): int
     {
         return match (true) {
-            $skill >= 18 => 3,
-            $skill >= 9 => 2,
+            $skill >= 16 => 3,
+            $skill >= 6 => 2,
             default => 1,
+        };
+    }
+
+    private function candidateMoveLimit(int $skill): int
+    {
+        return match (true) {
+            $skill >= 16 => 10,
+            $skill >= 10 => 8,
+            $skill >= 6 => 7,
+            default => 6,
+        };
+    }
+
+    private function fallbackSearchBudget(int $skill): float
+    {
+        return match (true) {
+            $skill >= 16 => self::FALLBACK_SEARCH_BUDGET_SECONDS,
+            $skill >= 10 => 0.28,
+            $skill >= 6 => 0.22,
+            default => 0.16,
         };
     }
 
@@ -466,5 +538,54 @@ class AiGameService
     private function turnFromChess(Chess $chess): string
     {
         return explode(' ', $chess->fen())[1] ?? Piece::WHITE;
+    }
+
+    private function positionCountsForGame(Game $game): array
+    {
+        $counts = [
+            $this->normalizeFen($game->starting_fen) => 1,
+        ];
+
+        foreach ($game->moves()->pluck('fen_after') as $fen) {
+            $normalizedFen = $this->normalizeFen($fen);
+            $counts[$normalizedFen] = ($counts[$normalizedFen] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    private function recentUciMovesForGame(Game $game): array
+    {
+        return $game->moves()
+            ->orderByDesc('ply')
+            ->limit(8)
+            ->pluck('uci')
+            ->all();
+    }
+
+    private function repetitionPenalty(Chess $chess, array $positionCounts, array $recentUciMoves, Move $move): int
+    {
+        $penalty = 0;
+        $normalizedFen = $this->normalizeFen($chess->fen());
+        $repeatCount = $positionCounts[$normalizedFen] ?? 0;
+
+        if ($repeatCount > 0) {
+            $penalty += $repeatCount * self::REPETITION_PENALTY;
+        }
+
+        $uci = $move->from.$move->to.($move->promotion ?? '');
+
+        if (in_array($uci, $recentUciMoves, true)) {
+            $penalty += self::RECENT_REPEAT_PENALTY;
+        }
+
+        return $penalty;
+    }
+
+    private function normalizeFen(string $fen): string
+    {
+        $parts = explode(' ', $fen);
+
+        return implode(' ', array_slice($parts, 0, 4));
     }
 }

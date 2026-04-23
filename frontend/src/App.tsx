@@ -9,20 +9,31 @@ import DashboardPage, {
 import GameRoom from './components/GameRoom'
 import {
   clearStoredToken,
+  createAdminCosmetic,
   createGame,
+  equipCosmetic,
   fetchGame,
+  fetchAdminCosmetics,
+  fetchAdminUsers,
   fetchCurrentUser,
-  fetchGames,
+  fetchGamesIncludingHidden,
   fetchProfile,
+  fetchShop,
   getApiUrl,
   getStoredToken,
+  unequipCosmetic,
   login,
   logout,
+  hideGame,
+  purchaseCosmetic,
   register,
   setStoredToken,
+  unhideGame,
+  updateAdminCosmetic,
+  updateAdminUser,
   updateProfile,
 } from './api'
-import type { GameSummary, User } from './types'
+import type { AdminCosmeticRecord, AdminUserRecord, BoardTheme, GameSummary, ShopState, User } from './types'
 
 type AuthMode = 'login' | 'register'
 type GuestView = 'landing' | 'auth'
@@ -33,6 +44,19 @@ const initialProfileForm: ProfileForm = {
   bio: '',
   country_code: '',
   avatar_path: '',
+  board_light_color: '#f0d9b5',
+  board_dark_color: '#b58863',
+  board_pattern: 'solid',
+  board_frame_style: 'tournament',
+  board_coordinate_style: 'classic',
+  board_effect: 'none',
+  move_indicator_theme: {
+    move_dot_color: '#ffffff',
+    capture_ring_color: '#de4e4e',
+    selected_outline_color: '#c9a84c',
+    last_move_overlay_color: 'rgba(201,168,76,0.18)',
+  },
+  board_theme_presets: [],
 }
 
 const initialCreateGameForm: CreateGameForm = {
@@ -51,6 +75,9 @@ function App() {
   const [user, setUser] = useState<User | null>(null)
   const [games, setGames] = useState<GameSummary[]>([])
   const [activeGame, setActiveGame] = useState<GameSummary | null>(null)
+  const [shop, setShop] = useState<ShopState | null>(null)
+  const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([])
+  const [adminCosmetics, setAdminCosmetics] = useState<AdminCosmeticRecord[]>([])
   const [profileForm, setProfileForm] = useState<ProfileForm>(initialProfileForm)
   const [gameForm, setGameForm] = useState<CreateGameForm>(initialCreateGameForm)
   const [loginForm, setLoginForm] = useState({
@@ -71,9 +98,57 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false)
   const [profileBusy, setProfileBusy] = useState(false)
   const [gamesBusy, setGamesBusy] = useState(false)
+  const [shopBusy, setShopBusy] = useState(false)
+  const [adminBusy, setAdminBusy] = useState(false)
+  const [adminLoaded, setAdminLoaded] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => {
+    if (!token || !user?.is_admin || view !== 'admin' || adminLoaded) {
+      return
+    }
+
+    const activeToken = token
+    let cancelled = false
+
+    async function loadAdminData() {
+      setAdminBusy(true)
+      setError(null)
+
+      try {
+        const [usersResponse, cosmeticsResponse] = await Promise.all([
+          fetchAdminUsers(activeToken),
+          fetchAdminCosmetics(activeToken),
+        ])
+
+        if (cancelled) {
+          return
+        }
+
+        setAdminUsers(usersResponse.users)
+        setAdminCosmetics(cosmeticsResponse.items)
+        setAdminLoaded(true)
+      } catch (requestError) {
+        if (cancelled) {
+          return
+        }
+
+        setError(requestError instanceof Error ? requestError.message : 'Could not refresh admin data.')
+        // Set loaded to true even on error to prevent infinite retry loop
+        setAdminLoaded(true)
+      } finally {
+        setAdminBusy(false)
+      }
+    }
+
+    void loadAdminData()
+
+    return () => {
+      cancelled = true
+    }
+  }, [token, user?.is_admin, view, adminLoaded])
+  
   useEffect(() => {
     if (!token) {
       return
@@ -84,39 +159,47 @@ function App() {
 
     async function bootstrap() {
       try {
-        const [meResponse, profileResponse, gamesResponse] = await Promise.all([
-          fetchCurrentUser(activeToken),
-          fetchProfile(activeToken),
-          fetchGames(activeToken),
-        ])
+        const currentUserResponse = await fetchCurrentUser(activeToken)
+        const profileResponse = await fetchProfile(activeToken)
+        const gamesResponse = await fetchGamesIncludingHidden(activeToken)
+        const shopResponse = await fetchShop(activeToken)
 
-        if (cancelled) {
-          return
-        }
+        if (cancelled) return
 
-        setUser(meResponse.user)
+        setUser(currentUserResponse.user)
+
         setProfileForm({
-          username: profileResponse.profile.username ?? '',
-          name: profileResponse.profile.name ?? '',
+          username: currentUserResponse.user.username ?? '',
+          name: currentUserResponse.user.name ?? '',
           bio: profileResponse.profile.bio ?? '',
           country_code: profileResponse.profile.country_code ?? '',
           avatar_path: profileResponse.profile.avatar_path ?? '',
+          board_light_color: profileResponse.profile.board_theme.light,
+          board_dark_color: profileResponse.profile.board_theme.dark,
+          board_pattern: profileResponse.profile.board_theme.pattern,
+          board_frame_style: profileResponse.profile.board_theme.frame_style,
+          board_coordinate_style: profileResponse.profile.board_theme.coordinate_style,
+          board_effect: profileResponse.profile.board_theme.effect,
+          move_indicator_theme: profileResponse.profile.board_theme.indicators,
+          board_theme_presets: profileResponse.profile.board_theme_presets,
         })
+
         setGames(gamesResponse.data)
-      } catch (requestError) {
-        if (cancelled) {
-          return
-        }
+        syncShop(shopResponse)
+      } catch (err) {
+        if (cancelled) return
 
         clearStoredToken()
         setToken(null)
         setUser(null)
         setGames([])
         setActiveGame(null)
+        setShop(null)
+
         setError(
-          requestError instanceof Error
-            ? requestError.message
-            : 'Unable to restore the current session.',
+          err instanceof Error
+            ? err.message
+            : 'Session expired. Please login again.',
         )
       } finally {
         if (!cancelled) {
@@ -133,8 +216,23 @@ function App() {
   }, [token])
 
   async function refreshGames(activeToken: string) {
-    const gamesResponse = await fetchGames(activeToken)
+    const gamesResponse = await fetchGamesIncludingHidden(activeToken)
     setGames(gamesResponse.data)
+  }
+
+  async function refreshShop(activeToken: string) {
+    const shopResponse = await fetchShop(activeToken)
+    syncShop(shopResponse)
+  }
+
+  async function refreshAdmin(activeToken: string) {
+    const [usersResponse, cosmeticsResponse] = await Promise.all([
+      fetchAdminUsers(activeToken),
+      fetchAdminCosmetics(activeToken),
+    ])
+
+    setAdminUsers(usersResponse.users)
+    setAdminCosmetics(cosmeticsResponse.items)
   }
 
   function syncGame(game: GameSummary) {
@@ -144,6 +242,85 @@ function App() {
         ? currentGames.map((currentGame) => (currentGame.id === game.id ? game : currentGame))
         : [game, ...currentGames],
     )
+  }
+
+  function syncUser(nextUser: User) {
+    setUser(nextUser)
+    setProfileForm((current) => ({
+      ...current,
+      username: nextUser.username ?? '',
+      name: nextUser.name ?? '',
+      bio: nextUser.profile.bio ?? '',
+      country_code: nextUser.profile.country_code ?? '',
+      avatar_path: nextUser.profile.avatar_path ?? '',
+      board_light_color: nextUser.profile.board_theme.light,
+      board_dark_color: nextUser.profile.board_theme.dark,
+      board_pattern: nextUser.profile.board_theme.pattern,
+      board_frame_style: nextUser.profile.board_theme.frame_style,
+      board_coordinate_style: nextUser.profile.board_theme.coordinate_style,
+      board_effect: nextUser.profile.board_theme.effect,
+      move_indicator_theme: nextUser.profile.board_theme.indicators,
+      board_theme_presets: nextUser.profile.board_theme_presets,
+    }))
+  }
+
+  function syncShop(nextShop: ShopState) {
+    setShop(nextShop)
+    setUser((currentUser) =>
+      currentUser
+        ? {
+            ...currentUser,
+            profile: {
+              ...currentUser.profile,
+              soft_currency: nextShop.balance,
+              equipped_board: nextShop.equipped.board
+                ? {
+                    slug: nextShop.equipped.board.slug,
+                    name: nextShop.equipped.board.name,
+                    preview: nextShop.equipped.board.preview,
+                    assets: nextShop.equipped.board.assets,
+                  }
+                : null,
+              equipped_piece_set: nextShop.equipped.piece_set
+                ? {
+                    slug: nextShop.equipped.piece_set.slug,
+                    name: nextShop.equipped.piece_set.name,
+                    preview: nextShop.equipped.piece_set.preview,
+                    assets: nextShop.equipped.piece_set.assets,
+                  }
+                : null,
+            },
+          }
+        : currentUser,
+    )
+  }
+
+  function handleProfileFormChange(updater: (current: ProfileForm) => ProfileForm) {
+    setProfileForm((current) => {
+      const next = updater(current)
+
+      setUser((currentUser) =>
+        currentUser
+          ? {
+              ...currentUser,
+              profile: {
+                ...currentUser.profile,
+                board_theme: {
+                  light: next.board_light_color,
+                  dark: next.board_dark_color,
+                  pattern: next.board_pattern,
+                  frame_style: next.board_frame_style,
+                  coordinate_style: next.board_coordinate_style,
+                  effect: next.board_effect,
+                  indicators: next.move_indicator_theme,
+                },
+              },
+            }
+          : currentUser,
+      )
+
+      return next
+    })
   }
 
   function openAuth(nextMode: AuthMode) {
@@ -164,7 +341,18 @@ function App() {
       bio: authenticatedUser.profile.bio ?? '',
       country_code: authenticatedUser.profile.country_code ?? '',
       avatar_path: authenticatedUser.profile.avatar_path ?? '',
+      board_light_color: authenticatedUser.profile.board_theme.light,
+      board_dark_color: authenticatedUser.profile.board_theme.dark,
+      board_pattern: authenticatedUser.profile.board_theme.pattern,
+      board_frame_style: authenticatedUser.profile.board_theme.frame_style,
+      board_coordinate_style: authenticatedUser.profile.board_theme.coordinate_style,
+      board_effect: authenticatedUser.profile.board_theme.effect,
+      move_indicator_theme: authenticatedUser.profile.board_theme.indicators,
+      board_theme_presets: authenticatedUser.profile.board_theme_presets,
     })
+    setAdminLoaded(false)
+    setAdminUsers([])
+    setAdminCosmetics([])
     setMessage(`Signed in as ${authenticatedUser.username}.`)
     setError(null)
   }
@@ -220,6 +408,11 @@ function App() {
       setUser(null)
       setGames([])
       setActiveGame(null)
+      setShop(null)
+      setAdminUsers([])
+      setAdminCosmetics([])
+      setAdminBusy(false)
+      setAdminLoaded(false)
       setGuestView('landing')
       setMessage('Session cleared.')
       setError(null)
@@ -246,10 +439,17 @@ function App() {
               ...currentUser,
               username: response.profile.username,
               name: response.profile.name,
-              profile: {
-                bio: response.profile.bio,
-                country_code: response.profile.country_code,
-                avatar_path: response.profile.avatar_path,
+                profile: {
+                  bio: response.profile.bio,
+                  country_code: response.profile.country_code,
+                  avatar_path: response.profile.avatar_path,
+                  board_theme: response.profile.board_theme,
+                board_theme_presets: response.profile.board_theme_presets,
+                daily_missions: response.profile.daily_missions,
+                achievements: response.profile.achievements,
+                equipped_board: response.profile.equipped_board,
+                equipped_piece_set: response.profile.equipped_piece_set,
+                default_piece_sets: currentUser.profile.default_piece_sets,
                 ranked_rating: response.profile.ranked_rating,
                 highest_ranked_rating: response.profile.highest_ranked_rating,
                 experience: response.profile.experience,
@@ -265,6 +465,31 @@ function App() {
     } finally {
       setProfileBusy(false)
     }
+  }
+
+  function handleApplyBoardTheme(theme: BoardTheme) {
+    setProfileForm((current) => ({
+      ...current,
+      board_light_color: theme.light,
+      board_dark_color: theme.dark,
+      board_pattern: theme.pattern,
+      board_frame_style: theme.frame_style,
+      board_coordinate_style: theme.coordinate_style,
+      board_effect: theme.effect,
+      move_indicator_theme: theme.indicators,
+    }))
+
+    setUser((currentUser) =>
+      currentUser
+        ? {
+            ...currentUser,
+            profile: {
+              ...currentUser.profile,
+              board_theme: theme,
+            },
+          }
+        : currentUser,
+    )
   }
 
   async function handleCreateGame(event: FormEvent<HTMLFormElement>) {
@@ -303,6 +528,201 @@ function App() {
       setError(requestError instanceof Error ? requestError.message : 'Game creation failed.')
     } finally {
       setGamesBusy(false)
+    }
+  }
+
+  async function handleRefreshShop() {
+    if (!token) {
+      return
+    }
+
+    setShopBusy(true)
+    setError(null)
+
+    try {
+      await refreshShop(token)
+      setMessage('Store refreshed.')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not refresh store.')
+    } finally {
+      setShopBusy(false)
+    }
+  }
+
+  async function handlePurchaseCosmetic(slug: string) {
+    if (!token) {
+      return
+    }
+
+    setShopBusy(true)
+    setError(null)
+
+    try {
+      const response = await purchaseCosmetic(token, slug)
+      syncShop(response)
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Purchase failed.')
+    } finally {
+      setShopBusy(false)
+    }
+  }
+
+  async function handleEquipCosmetic(slug: string) {
+    if (!token) {
+      return
+    }
+
+    setShopBusy(true)
+    setError(null)
+
+    try {
+      const response = await equipCosmetic(token, slug)
+      syncShop(response)
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Equip failed.')
+    } finally {
+      setShopBusy(false)
+    }
+  }
+
+  async function handleUnequipCosmetic(slug: string) {
+    if (!token) {
+      return
+    }
+
+    setShopBusy(true)
+    setError(null)
+
+    try {
+      const response = await unequipCosmetic(token, slug)
+      syncShop(response)
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Unequip failed.')
+    } finally {
+      setShopBusy(false)
+    }
+  }
+
+  async function handleRefreshAdmin() {
+    if (!token || !user?.is_admin) {
+      return
+    }
+
+    setAdminBusy(true)
+    setError(null)
+
+    try {
+      await refreshAdmin(token)
+      setAdminLoaded(true)
+      setMessage('Admin data refreshed.')
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not refresh admin data.')
+    } finally {
+      setAdminBusy(false)
+    }
+  }
+
+  async function handleUpdateAdminUser(
+    userId: number,
+    payload: { is_admin: boolean; is_active: boolean; soft_currency: number },
+  ) {
+    if (!token) {
+      return
+    }
+
+    setAdminBusy(true)
+    setError(null)
+
+    try {
+      const response = await updateAdminUser(token, userId, payload)
+      setAdminUsers((currentUsers) =>
+        currentUsers.map((currentUser) => (currentUser.id === userId ? response.user : currentUser)),
+      )
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not update user.')
+    } finally {
+      setAdminBusy(false)
+    }
+  }
+
+  async function handleCreateAdminCosmetic(payload: {
+    slug: string
+    name: string
+    category: 'board' | 'piece_set' | 'bundle'
+    rarity: string
+    description: string
+    price_soft_currency: number
+    sort_order: number
+    is_active: boolean
+    preview: {
+      primary: string
+      secondary: string
+    }
+    assets: Record<string, string>
+  }) {
+    if (!token || adminBusy) {
+      return
+    }
+
+    setAdminBusy(true)
+    setError(null)
+
+    try {
+      const response = await createAdminCosmetic(token, payload)
+      setAdminCosmetics((currentCosmetics) =>
+        [...currentCosmetics, response.item].sort(
+          (left, right) => left.sort_order - right.sort_order || left.id - right.id,
+        ),
+      )
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not create cosmetic.')
+    } finally {
+      setAdminBusy(false)
+    }
+  }
+
+  async function handleUpdateAdminCosmetic(
+    cosmeticId: number,
+    payload: {
+      slug: string
+      name: string
+      category: 'board' | 'piece_set' | 'bundle'
+      rarity: string
+      description: string
+      price_soft_currency: number
+      sort_order: number
+      is_active: boolean
+      preview: {
+        primary: string
+        secondary: string
+      }
+      assets: Record<string, string>
+    },
+  ) {
+    if (!token) {
+      return
+    }
+
+    setAdminBusy(true)
+    setError(null)
+
+    try {
+      const response = await updateAdminCosmetic(token, cosmeticId, payload)
+      setAdminCosmetics((currentCosmetics) =>
+        currentCosmetics
+          .map((currentCosmetic) => (currentCosmetic.id === cosmeticId ? response.item : currentCosmetic))
+          .sort((left, right) => left.sort_order - right.sort_order || left.id - right.id),
+      )
+      setMessage(response.message)
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : 'Could not update cosmetic.')
+    } finally {
+      setAdminBusy(false)
     }
   }
 
@@ -728,10 +1148,12 @@ function App() {
           <GameRoom
             key={activeGame.id}
             currentUser={currentUser}
+            shop={shop}
             token={token ?? ''}
             game={activeGame}
             onBack={() => setActiveGame(null)}
             onGameChange={syncGame}
+            onUserChange={syncUser}
           />
         ) : currentUser ? (
           <DashboardPage
@@ -744,10 +1166,16 @@ function App() {
             onCreateGame={handleCreateGame}
             gamesBusy={gamesBusy}
             profileForm={profileForm}
-            onProfileFormChange={setProfileForm}
+            onProfileFormChange={handleProfileFormChange}
             onProfileSubmit={handleProfileSubmit}
+            onApplyBoardTheme={handleApplyBoardTheme}
             profileBusy={profileBusy}
             games={games}
+            shop={shop}
+            shopBusy={shopBusy}
+            adminUsers={adminUsers}
+            adminCosmetics={adminCosmetics}
+            adminBusy={adminBusy}
             onOpenGame={(gameId) => {
               if (!token) {
                 return
@@ -784,6 +1212,76 @@ function App() {
                   ),
                 )
                 .finally(() => setGamesBusy(false))
+            }}
+            onHideGame={(gameId) => {
+              if (!token) {
+                return
+              }
+
+              setGamesBusy(true)
+              setError(null)
+              void hideGame(token, gameId)
+                .then((response) => {
+                  setGames((currentGames) =>
+                    currentGames.map((game) => (game.id === gameId ? { ...game, hidden: true } : game)),
+                  )
+                  setMessage(response.message)
+                })
+                .catch((requestError: unknown) =>
+                  setError(
+                    requestError instanceof Error
+                      ? requestError.message
+                      : 'Could not hide match.',
+                  ),
+                )
+                .finally(() => setGamesBusy(false))
+            }}
+            onUnhideGame={(gameId) => {
+              if (!token) {
+                return
+              }
+
+              setGamesBusy(true)
+              setError(null)
+              void unhideGame(token, gameId)
+                .then((response) => {
+                  setGames((currentGames) =>
+                    currentGames.map((game) => (game.id === gameId ? { ...game, hidden: false } : game)),
+                  )
+                  setMessage(response.message)
+                })
+                .catch((requestError: unknown) =>
+                  setError(
+                    requestError instanceof Error
+                      ? requestError.message
+                      : 'Could not unhide match.',
+                  ),
+                )
+                .finally(() => setGamesBusy(false))
+            }}
+            onRefreshShop={() => {
+              void handleRefreshShop()
+            }}
+            onPurchaseCosmetic={(slug) => {
+              void handlePurchaseCosmetic(slug)
+            }}
+            onEquipCosmetic={(slug) => {
+              void handleEquipCosmetic(slug)
+            }}
+            onUnequipCosmetic={(slug) => {
+              void handleUnequipCosmetic(slug)
+            }}
+            onRefreshAdmin={() => {
+              void handleRefreshAdmin()
+            }}
+            onUpdateAdminUser={(userId, payload) => {
+              void handleUpdateAdminUser(userId, payload)
+            }}
+            onCreateAdminCosmetic={(payload) => {
+              void handleCreateAdminCosmetic(payload)
+            }}
+            onUpdateAdminCosmetic={(cosmeticId, payload) => {
+              void handleUpdateAdminCosmetic(cosmeticId, payload)
             }}
           />
         ) : null

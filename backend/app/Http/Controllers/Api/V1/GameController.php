@@ -10,6 +10,8 @@ use App\Http\Requests\StoreGameMoveRequest;
 use App\Http\Requests\StoreGameRequest;
 use App\Models\Game;
 use App\Services\AiGameService;
+use App\Services\GameRewardService;
+use App\Services\ShopService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -17,16 +19,23 @@ use RuntimeException;
 
 class GameController extends Controller
 {
-    public function __construct(private readonly AiGameService $aiGameService) {}
+    public function __construct(
+        private readonly AiGameService $aiGameService,
+        private readonly GameRewardService $gameRewardService,
+        private readonly ShopService $shopService,
+    ) {}
 
     public function index(Request $request): JsonResponse
     {
         $request->validate([
             'mode' => ['nullable', 'string', 'in:casual,ranked,ai'],
             'status' => ['nullable', 'string', 'in:waiting,active,finished,aborted'],
+            'include_hidden' => ['nullable', 'boolean'],
         ]);
 
-        $userId = $request->user()->id;
+        $user = $request->user();
+        $userId = $user->id;
+        $hiddenGameIds = $user->hiddenGames()->pluck('game_id');
 
         $games = Game::query()
             ->with(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name'])
@@ -38,12 +47,13 @@ class GameController extends Controller
             })
             ->when($request->filled('mode'), fn ($query) => $query->where('mode', $request->string('mode')->toString()))
             ->when($request->filled('status'), fn ($query) => $query->where('status', $request->string('status')->toString()))
+            ->when(! $request->boolean('include_hidden'), fn ($query) => $query->whereNotIn('id', $hiddenGameIds))
             ->latest('id')
             ->paginate(20);
 
         return response()->json([
             'data' => $games->getCollection()
-                ->map(fn (Game $game) => $this->formatGame($game))
+                ->map(fn (Game $game) => $this->formatGame($game, false, $hiddenGameIds->contains($game->id)))
                 ->all(),
             'meta' => [
                 'current_page' => $games->currentPage(),
@@ -94,7 +104,7 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'game' => $this->formatGame($game->load(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name', 'moves.user:id,username,name']), true),
+            'game' => $this->formatGame($game->load(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name', 'moves.user:id,username,name']), true, false),
         ], 201);
     }
 
@@ -115,7 +125,7 @@ class GameController extends Controller
         ]);
 
         return response()->json([
-            'game' => $this->formatGame($game, true),
+            'game' => $this->formatGame($game, true, $request->user()->hiddenGames()->where('game_id', $game->id)->exists()),
         ]);
     }
 
@@ -139,7 +149,8 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'game' => $this->formatGame($game, true),
+            'game' => $this->formatGame($game, true, false),
+            'user' => $this->formatUser($request->user()->fresh()->load('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic')),
         ]);
     }
 
@@ -156,7 +167,34 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'game' => $this->formatGame($game, true),
+            'game' => $this->formatGame($game, true, false),
+            'user' => $this->formatUser($request->user()->fresh()->load('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic')),
+        ]);
+    }
+
+    public function hide(Request $request, Game $game): JsonResponse
+    {
+        $this->authorizeGameAccess($request->user()->id, $game);
+
+        $request->user()->hiddenGames()->firstOrCreate([
+            'game_id' => $game->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Match hidden from your history.',
+        ]);
+    }
+
+    public function unhide(Request $request, Game $game): JsonResponse
+    {
+        $this->authorizeGameAccess($request->user()->id, $game);
+
+        $request->user()->hiddenGames()
+            ->where('game_id', $game->id)
+            ->delete();
+
+        return response()->json([
+            'message' => 'Match restored to your history.',
         ]);
     }
 
@@ -168,7 +206,7 @@ class GameController extends Controller
         );
     }
 
-    private function formatGame(Game $game, bool $includeMoves = false): array
+    private function formatGame(Game $game, bool $includeMoves = false, bool $hidden = false): array
     {
         return [
             'id' => $game->public_id,
@@ -186,6 +224,8 @@ class GameController extends Controller
             'state_version' => $game->state_version,
             'ai_opponent_name' => $game->ai_opponent_name,
             'ai_skill_level' => $game->ai_skill_level,
+            'reward_summary' => $this->gameRewardService->summarize($game),
+            'hidden' => $hidden,
             'players' => [
                 'white' => $game->whitePlayer ? [
                     'id' => $game->whitePlayer->id,
@@ -222,6 +262,79 @@ class GameController extends Controller
                     ] : null,
                 ])->all()
                 : null,
+        ];
+    }
+
+    private function formatUser($user): array
+    {
+        $profile = $user->profile ?? $user->profile()->firstOrCreate();
+        $indicatorTheme = $this->formatMoveIndicatorTheme($profile->move_indicator_theme);
+
+        return [
+            'id' => $user->id,
+            'username' => $user->username,
+            'name' => $user->name,
+            'email' => $user->email,
+            'is_admin' => $user->is_admin,
+            'is_active' => $user->is_active,
+            'email_verified_at' => $user->email_verified_at?->toIso8601String(),
+            'profile' => [
+                'bio' => $profile->bio,
+                'country_code' => $profile->country_code,
+                'avatar_path' => $profile->avatar_path,
+                'board_theme' => [
+                    'light' => $profile->board_light_color ?? '#f0d9b5',
+                    'dark' => $profile->board_dark_color ?? '#b58863',
+                    'pattern' => $profile->board_pattern ?? 'solid',
+                    'frame_style' => $profile->board_frame_style ?? 'tournament',
+                    'coordinate_style' => $profile->board_coordinate_style ?? 'classic',
+                    'effect' => $profile->board_effect ?? 'none',
+                    'indicators' => $indicatorTheme,
+                ],
+                'board_theme_presets' => collect($profile->board_theme_presets ?? [])
+                    ->map(fn ($preset) => [
+                        'name' => $preset['name'] ?? 'Preset',
+                        'light' => $preset['light'] ?? '#f0d9b5',
+                        'dark' => $preset['dark'] ?? '#b58863',
+                        'pattern' => $preset['pattern'] ?? 'solid',
+                        'frame_style' => $preset['frame_style'] ?? 'tournament',
+                        'coordinate_style' => $preset['coordinate_style'] ?? 'classic',
+                        'effect' => $preset['effect'] ?? 'none',
+                        'indicators' => $this->formatMoveIndicatorTheme($preset['indicators'] ?? null),
+                    ])
+                    ->values()
+                    ->all(),
+                'daily_missions' => $profile->daily_missions ?? [],
+                'achievements' => $profile->achievements ?? [],
+                'equipped_board' => $profile->equippedBoardCosmetic ? [
+                    'slug' => $profile->equippedBoardCosmetic->slug,
+                    'name' => $profile->equippedBoardCosmetic->name,
+                    'preview' => $profile->equippedBoardCosmetic->preview,
+                    'assets' => $profile->equippedBoardCosmetic->assets,
+                ] : null,
+                'equipped_piece_set' => $profile->equippedPieceCosmetic ? [
+                    'slug' => $profile->equippedPieceCosmetic->slug,
+                    'name' => $profile->equippedPieceCosmetic->name,
+                    'preview' => $profile->equippedPieceCosmetic->preview,
+                    'assets' => $profile->equippedPieceCosmetic->assets,
+                ] : null,
+                'default_piece_sets' => $this->shopService->defaultPieceSets(),
+                'ranked_rating' => $profile->ranked_rating,
+                'highest_ranked_rating' => $profile->highest_ranked_rating,
+                'experience' => $profile->experience,
+                'level' => $profile->level,
+                'soft_currency' => $profile->soft_currency,
+            ],
+        ];
+    }
+
+    private function formatMoveIndicatorTheme(?array $theme): array
+    {
+        return [
+            'move_dot_color' => $theme['move_dot_color'] ?? '#ffffff',
+            'capture_ring_color' => $theme['capture_ring_color'] ?? '#de4e4e',
+            'selected_outline_color' => $theme['selected_outline_color'] ?? '#c9a84c',
+            'last_move_overlay_color' => $theme['last_move_overlay_color'] ?? 'rgba(201,168,76,0.18)',
         ];
     }
 }

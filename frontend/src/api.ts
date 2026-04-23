@@ -1,4 +1,4 @@
-import type { AuthResponse, GameListResponse, GameSummary, Profile, User } from './types'
+import type { AdminCosmeticRecord, AdminUserRecord, AuthResponse, BoardThemePreset, GameListResponse, GameSummary, Profile, ShopState, User } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000/api/v1'
 const TOKEN_STORAGE_KEY = 'chess-api-token'
@@ -35,6 +35,13 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}) 
     },
     body: options.body ? JSON.stringify(options.body) : undefined,
   })
+
+  // 🔥 HANDLE 401 HERE
+  if (response.status === 401) {
+    clearStoredToken()
+    window.location.reload()
+    throw new Error('Session expired.')
+  }
 
   const payload = (await response.json().catch(() => null)) as
     | { message?: string; errors?: Record<string, string[]> }
@@ -113,6 +120,19 @@ export function updateProfile(
     bio: string
     country_code: string
     avatar_path: string
+    board_light_color: string
+    board_dark_color: string
+    board_pattern: 'solid' | 'wood' | 'marble' | 'obsidian' | 'parchment' | 'neon'
+    board_frame_style: 'none' | 'tournament' | 'gold' | 'iron' | 'royal'
+    board_coordinate_style: 'classic' | 'mono' | 'minimal' | 'hidden'
+    board_effect: 'none' | 'fire'
+    move_indicator_theme: {
+      move_dot_color: string
+      capture_ring_color: string
+      selected_outline_color: string
+      last_move_overlay_color: string
+    }
+    board_theme_presets: BoardThemePreset[]
   },
 ) {
   return apiRequest<{ message: string; profile: Profile & { username: string; name: string } }>(
@@ -146,6 +166,10 @@ export function fetchGames(token: string) {
   return apiRequest<GameListResponse>('/games', { token })
 }
 
+export function fetchGamesIncludingHidden(token: string) {
+  return apiRequest<GameListResponse>('/games?include_hidden=1', { token })
+}
+
 export function fetchGame(token: string, gameId: string) {
   return apiRequest<{ game: GameSummary }>(`/games/${gameId}`, { token })
 }
@@ -160,7 +184,7 @@ export function submitAiMove(
     state_version: number
   },
 ) {
-  return apiRequest<{ game: GameSummary }>(`/games/${gameId}/moves`, {
+  return apiRequest<{ game: GameSummary; user: User }>(`/games/${gameId}/moves`, {
     method: 'POST',
     token,
     body: payload,
@@ -168,8 +192,128 @@ export function submitAiMove(
 }
 
 export function resignAiGame(token: string, gameId: string) {
-  return apiRequest<{ game: GameSummary }>(`/games/${gameId}/resign`, {
+  return apiRequest<{ game: GameSummary; user: User }>(`/games/${gameId}/resign`, {
     method: 'POST',
     token,
   })
+}
+
+export function hideGame(token: string, gameId: string) {
+  return apiRequest<{ message: string }>(`/games/${gameId}/hide`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function unhideGame(token: string, gameId: string) {
+  return apiRequest<{ message: string }>(`/games/${gameId}/unhide`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function fetchShop(token: string) {
+  return apiRequest<ShopState>('/shop', { token })
+}
+
+export function purchaseCosmetic(token: string, slug: string) {
+  return apiRequest<{ message: string } & ShopState>('/shop/purchase', {
+    method: 'POST',
+    token,
+    body: { slug },
+  })
+}
+
+export function equipCosmetic(token: string, slug: string) {
+  return apiRequest<{ message: string } & ShopState>('/shop/equip', {
+    method: 'POST',
+    token,
+    body: { slug },
+  })
+}
+
+export function unequipCosmetic(token: string, slug: string) {
+  return apiRequest<{ message: string } & ShopState>('/shop/unequip', {
+    method: 'POST',
+    token,
+    body: { slug },
+  })
+}
+
+export function fetchAdminUsers(token: string) {
+  return apiRequest<{ users: AdminUserRecord[] }>('/admin/users', { token })
+}
+
+export function updateAdminUser(
+  token: string,
+  userId: number,
+  payload: {
+    is_admin: boolean
+    is_active: boolean
+    soft_currency: number
+  },
+) {
+  return apiRequest<{ message: string; user: AdminUserRecord }>(`/admin/users/${userId}`, {
+    method: 'PATCH',
+    token,
+    body: payload,
+  })
+}
+
+export function fetchAdminCosmetics(token: string) {
+  return apiRequest<{ items: AdminCosmeticRecord[] }>('/admin/cosmetics', { token })
+}
+
+export function createAdminCosmetic(
+  token: string,
+  payload: {
+    slug: string
+    name: string
+    category: 'board' | 'piece_set' | 'bundle'
+    rarity: string
+    description: string
+    price_soft_currency: number
+    sort_order: number
+    is_active: boolean
+    preview: {
+      primary: string
+      secondary: string
+    }
+    assets: Record<string, string>
+  },
+) {
+  return apiRequest<{ message: string; item: AdminCosmeticRecord }>('/admin/cosmetics', {
+    method: 'POST',
+    token,
+    body: payload,
+  })
+}
+
+export function updateAdminCosmetic(
+  token: string,
+  cosmeticId: number,
+  payload: {
+    slug: string
+    name: string
+    category: 'board' | 'piece_set' | 'bundle'
+    rarity: string
+    description: string
+    price_soft_currency: number
+    sort_order: number
+    is_active: boolean
+    preview: {
+      primary: string
+      secondary: string
+    }
+    assets: Record<string, string>
+  },
+) {
+  return apiRequest<{ message: string; item: AdminCosmeticRecord }>(
+    `/admin/cosmetics/${cosmeticId}`,
+    {
+      method: 'PATCH',
+      token,
+      body: payload,
+    },
+  )
 }

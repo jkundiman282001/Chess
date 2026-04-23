@@ -1,15 +1,18 @@
 import { Chess, type Square } from 'chess.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import './GameRoom.css'
 import { resignAiGame, submitAiMove } from '../api'
-import type { GameSummary, User } from '../types'
+import type { BoardTheme, CosmeticItem, GameSummary, ShopState, User } from '../types'
 
 type GameRoomProps = {
   currentUser: User
+  shop: ShopState | null
   token: string
   game: GameSummary
   onBack: () => void
   onGameChange: (game: GameSummary) => void
+  onUserChange: (user: User) => void
 }
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] as const
@@ -30,6 +33,15 @@ const PIECE_MAP: Record<string, string> = {
   bk: '♚',
 }
 
+const PIECE_ASSET_KEY: Record<string, string> = {
+  p: 'pawn',
+  r: 'rook',
+  n: 'knight',
+  b: 'bishop',
+  q: 'queen',
+  k: 'king',
+}
+
 type PreviewState = {
   fen: string
   moveLog: string[]
@@ -39,9 +51,14 @@ type PreviewState = {
   } | null
 }
 
-function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomProps) {
+type LegalTargetState = {
+  square: Square
+  isCapture: boolean
+}
+
+function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUserChange }: GameRoomProps) {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
-  const [legalTargets, setLegalTargets] = useState<Square[]>([])
+  const [legalTargets, setLegalTargets] = useState<LegalTargetState[]>([])
   const [submittingMove, setSubmittingMove] = useState(false)
   const [resigning, setResigning] = useState(false)
   const [roomError, setRoomError] = useState<string | null>(null)
@@ -79,7 +96,13 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
   const canMove = isAiGame && !submittingMove && !resigning && !aiTurn && playerColor === engine.turn() && !engine.isGameOver()
   const files = playerColor === 'b' ? [...FILES].reverse() : FILES
   const ranks = playerColor === 'b' ? [...RANKS].reverse() : RANKS
+  const boardTheme = currentUser.profile.board_theme
   const moveLog = previewState?.moveLog ?? (game.moves ?? []).map((move) => move.san)
+  const equippedPieceSlug = currentUser.profile.equipped_piece_set?.slug ?? null
+  const aiPieceBundle = useMemo(
+    () => pickAiPieceBundle(shop?.items ?? [], equippedPieceSlug, game.id),
+    [equippedPieceSlug, game.id, shop?.items],
+  )
   const resignationModalVisible =
     game.status === 'finished' && game.termination_reason === 'resignation'
   const statusMessage = useMemo(() => {
@@ -117,7 +140,7 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
       return
     }
 
-    if (selectedSquare && legalTargets.includes(square)) {
+    if (selectedSquare && legalTargets.some((target) => target.square === square)) {
       void makePlayerMove(selectedSquare, square)
       return
     }
@@ -131,7 +154,12 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
 
     const moves = engine.moves({ square, verbose: true })
     setSelectedSquare(square)
-    setLegalTargets(moves.map((move) => move.to))
+    setLegalTargets(
+      moves.map((move) => ({
+        square: move.to,
+        isCapture: Boolean(move.captured),
+      })),
+    )
   }
 
   async function makePlayerMove(from: Square, to: Square) {
@@ -176,11 +204,13 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
           setThinkingModalVisible(false)
           setPreviewState(null)
           onGameChange(response.game)
+          onUserChange(response.user)
           revealTimerRef.current = null
         }, 1200)
       } else {
         setPreviewState(null)
         onGameChange(response.game)
+        onUserChange(response.user)
       }
     } catch (error) {
       setPreviewState(null)
@@ -199,6 +229,7 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
       setSelectedSquare(null)
       setLegalTargets([])
       onGameChange(response.game)
+      onUserChange(response.user)
     } catch (error) {
       setRoomError(error instanceof Error ? error.message : 'Resign failed.')
     } finally {
@@ -231,6 +262,12 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
           <p className="gr-label">Status</p>
           <strong>{engine.isGameOver() ? 'Finished' : 'In progress'}</strong>
           <p>{statusMessage}</p>
+          {game.reward_summary ? (
+            <div className="gr-reward-summary">
+              <span>+{game.reward_summary.coins} coins</span>
+              <span>+{game.reward_summary.experience} XP</span>
+            </div>
+          ) : null}
           {roomError ? <p className="gr-error">{roomError}</p> : null}
         </div>
         <div className="gr-panel">
@@ -264,6 +301,12 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
                 {game.players.winner?.id === currentUser.id ? 'Opponent Resigned' : 'You Resigned'}
               </strong>
               <p className="gr-result-copy">{buildFinishedMessage(game, currentUser)}</p>
+              {game.reward_summary ? (
+                <div className="gr-result-rewards">
+                  <span>+{game.reward_summary.coins} coins</span>
+                  <span>+{game.reward_summary.experience} XP</span>
+                </div>
+              ) : null}
               <button
                 className="gr-modal-button"
                 onClick={onBack}
@@ -292,15 +335,29 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
         </header>
 
         <section className="gr-board-shell">
-          <div className="gr-files">
-            {files.map((file) => (
-              <span key={file}>{file}</span>
-            ))}
-          </div>
-          <div className="gr-board">
+          {boardTheme.coordinate_style !== 'hidden' ? (
+            <div className={`gr-files is-${boardTheme.coordinate_style}`}>
+              {files.map((file) => (
+                <span key={file}>{file}</span>
+              ))}
+            </div>
+          ) : null}
+          <div
+            className={`gr-board is-frame-${boardTheme.frame_style} is-coordinates-${boardTheme.coordinate_style} is-effect-${boardTheme.effect}`}
+            style={getBoardFrameStyle(boardTheme)}
+          >
+            {boardTheme.effect === 'fire' ? (
+              <div aria-hidden="true" className="gr-board-effect gr-board-effect--fire">
+                <span />
+                <span />
+                <span />
+              </div>
+            ) : null}
             {ranks.map((rank) => (
               <div className="gr-rank" key={rank}>
-                <span className="gr-rank-label">{rank}</span>
+                {boardTheme.coordinate_style !== 'hidden' ? (
+                  <span className={`gr-rank-label is-${boardTheme.coordinate_style}`}>{rank}</span>
+                ) : null}
                 {files.map((file) => {
                   const square = `${file}${rank}` as Square
                   const piece = engine.get(square)
@@ -308,23 +365,35 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
                   const boardCol = file.charCodeAt(0) - 'a'.charCodeAt(0)
                   const isLight = (boardRow + boardCol) % 2 === 0
                   const isSelected = selectedSquare === square
-                  const isLegalTarget = legalTargets.includes(square)
+                  const legalTarget = legalTargets.find((target) => target.square === square)
+                  const isLegalTarget = Boolean(legalTarget)
+                  const isCaptureTarget = legalTarget?.isCapture === true
                   const isLastMoveSquare = lastMove ? lastMove.from === square || lastMove.to === square : false
 
                   return (
                     <button
-                      className={`gr-square ${isLight ? 'is-light' : 'is-dark'}${isSelected ? ' is-selected' : ''}${isLegalTarget ? ' is-target' : ''}${isLastMoveSquare ? ' is-last-move' : ''}`}
+                      className={`gr-square ${isLight ? 'is-light' : 'is-dark'}${isSelected ? ' is-selected' : ''}${isLegalTarget ? ' is-target' : ''}${isCaptureTarget ? ' is-capture-target' : ''}${isLastMoveSquare ? ' is-last-move' : ''}`}
                       disabled={!canMove}
                       key={square}
                       onClick={() => handleSquareClick(square)}
+                      style={getBoardSquareStyle(boardTheme, isLight)}
                       type="button"
                     >
-                      {piece ? (
-                        <span className={`gr-piece ${piece.color === 'w' ? 'is-white' : 'is-black'}`}>
-                          {PIECE_MAP[`${piece.color}${piece.type}`]}
-                        </span>
+                      {piece
+                        ? renderPiece(
+                            piece.color,
+                            piece.type,
+                            playerColor,
+                          currentUser.profile.equipped_piece_set?.assets,
+                          currentUser.profile.equipped_piece_set?.slug ?? null,
+                          currentUser.profile.equipped_piece_set?.name ?? null,
+                          aiPieceBundle?.assets ?? null,
+                          currentUser.profile.default_piece_sets,
+                        )
+                      : null}
+                      {isLegalTarget ? (
+                        isCaptureTarget ? <span className="gr-capture-ring" /> : <span className="gr-target-dot" />
                       ) : null}
-                      {isLegalTarget ? <span className="gr-target-dot" /> : null}
                     </button>
                   )
                 })}
@@ -336,6 +405,173 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange }: GameRoomPr
     </div>
   )
 }
+
+function renderPiece(
+  color: string,
+  type: string,
+  playerColor: 'w' | 'b' | null,
+  assets: Record<string, string> | null | undefined,
+  bundleSlug: string | null,
+  bundleName: string | null,
+  aiAssets: Record<string, string> | null,
+  defaultPieceSets: User['profile']['default_piece_sets'],
+) {
+  const unicodeKey = `${color}${type}`
+  const assetKey = PIECE_ASSET_KEY[type] ?? ''
+  const defaultAsset =
+    color === 'w'
+      ? defaultPieceSets.white?.assets?.[assetKey]
+      : defaultPieceSets.black?.assets?.[assetKey]
+  const assetSrc = assets?.[assetKey]
+
+  if (playerColor !== null && color !== playerColor) {
+    if (aiAssets?.[assetKey]) {
+      return <img alt="" className="gr-piece-image" src={aiAssets[assetKey]} />
+    }
+
+    if (defaultAsset) {
+      return <img alt="" className="gr-piece-image" src={defaultAsset} />
+    }
+
+    return (
+      <span className={`gr-piece ${color === 'w' ? 'is-white' : 'is-black'}`}>
+        {PIECE_MAP[unicodeKey]}
+      </span>
+    )
+  }
+
+  if (!bundleAppliesToColor(color, bundleSlug, bundleName)) {
+    if (defaultAsset) {
+      return <img alt="" className="gr-piece-image" src={defaultAsset} />
+    }
+
+    return (
+      <span className={`gr-piece ${color === 'w' ? 'is-white' : 'is-black'}`}>
+        {PIECE_MAP[unicodeKey]}
+      </span>
+    )
+  }
+
+  if (assetSrc) {
+    return <img alt="" className="gr-piece-image" src={assetSrc} />
+  }
+
+  return (
+    <span className={`gr-piece ${color === 'w' ? 'is-white' : 'is-black'}`}>
+      {PIECE_MAP[unicodeKey]}
+    </span>
+  )
+}
+
+function getBoardSquareStyle(theme: BoardTheme, isLight: boolean) {
+  return {
+    backgroundColor: isLight ? theme.light : theme.dark,
+    backgroundImage: getBoardPattern(theme.pattern, isLight),
+    backgroundBlendMode: 'overlay',
+    '--gr-move-dot-color': theme.indicators.move_dot_color,
+    '--gr-capture-ring-color': theme.indicators.capture_ring_color,
+    '--gr-selected-outline-color': theme.indicators.selected_outline_color,
+    '--gr-last-move-overlay-color': theme.indicators.last_move_overlay_color,
+  } as CSSProperties
+}
+
+function getBoardFrameStyle(theme: BoardTheme) {
+  const styles: Record<BoardTheme['frame_style'], CSSProperties> = {
+    none: {
+      borderColor: 'rgba(255,255,255,0.08)',
+      boxShadow: 'none',
+    },
+    tournament: {
+      borderColor: 'rgba(201,168,76,0.35)',
+      boxShadow: '0 20px 60px -35px rgba(0, 0, 0, 0.8)',
+    },
+    gold: {
+      borderColor: '#c9a84c',
+      boxShadow: '0 0 0 4px rgba(201,168,76,0.16), 0 20px 60px -35px rgba(0, 0, 0, 0.84)',
+    },
+    iron: {
+      borderColor: '#5a616d',
+      boxShadow: '0 0 0 4px rgba(90,97,109,0.18), 0 20px 60px -35px rgba(0, 0, 0, 0.84)',
+    },
+    royal: {
+      borderColor: '#8971d8',
+      boxShadow: '0 0 0 4px rgba(137,113,216,0.18), 0 20px 60px -35px rgba(0, 0, 0, 0.84)',
+    },
+  }
+
+  return styles[theme.frame_style]
+}
+
+function getBoardPattern(pattern: BoardTheme['pattern'], isLight: boolean) {
+  if (pattern === 'wood') {
+    return `linear-gradient(135deg, ${isLight ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.14)'}, transparent 60%), repeating-linear-gradient(25deg, rgba(0,0,0,0.05) 0 4px, transparent 4px 12px)`
+  }
+
+  if (pattern === 'marble') {
+    return `radial-gradient(circle at 22% 18%, ${isLight ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.08)'} 0, transparent 32%), repeating-linear-gradient(120deg, rgba(255,255,255,0.05) 0 2px, transparent 2px 16px)`
+  }
+
+  if (pattern === 'obsidian') {
+    return 'linear-gradient(145deg, rgba(255,255,255,0.04), rgba(0,0,0,0.22)), radial-gradient(circle at 50% 10%, rgba(117,154,255,0.08), transparent 45%)'
+  }
+
+  if (pattern === 'parchment') {
+    return `radial-gradient(circle at 30% 30%, ${isLight ? 'rgba(255,255,255,0.16)' : 'rgba(255,234,194,0.08)'} 0, transparent 45%), repeating-linear-gradient(0deg, rgba(90,62,30,0.05) 0 2px, transparent 2px 10px)`
+  }
+
+  if (pattern === 'neon') {
+    return 'linear-gradient(135deg, rgba(0,255,255,0.10), transparent 55%), linear-gradient(315deg, rgba(255,0,128,0.10), transparent 55%)'
+  }
+
+  return 'none'
+}
+
+function bundleAppliesToColor(color: string, bundleSlug: string | null, bundleName: string | null) {
+  const identity = `${bundleSlug ?? ''} ${bundleName ?? ''}`.toLowerCase()
+
+  if (identity.includes('white')) {
+    return color === 'w'
+  }
+
+  if (identity.includes('black')) {
+    return color === 'b'
+  }
+
+  return true
+}
+
+function pickAiPieceBundle(items: CosmeticItem[], equippedSlug: string | null, gameId: string) {
+  const candidates = items.filter((item) => {
+    if (item.slug === equippedSlug) {
+      return false
+    }
+
+    if (item.category !== 'bundle' && item.category !== 'piece_set') {
+      return false
+    }
+
+    return PIECE_CODES.some((pieceCode) => Boolean(item.assets?.[pieceCode]))
+  })
+
+  if (candidates.length === 0) {
+    return null
+  }
+
+  const seed = hashString(gameId)
+  return candidates[seed % candidates.length]
+}
+
+function hashString(value: string) {
+  let hash = 0
+
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
+  }
+
+  return hash
+}
+
+const PIECE_CODES = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'] as const
 
 function buildBoardEndMessage(engine: Chess) {
   if (engine.isCheckmate()) {
