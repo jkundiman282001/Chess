@@ -5,6 +5,10 @@ Monorepo layout for the web-based chess platform:
 - `backend/`: Laravel API
 - `frontend/`: React + TypeScript SPA
 
+For a full project handoff written for future AI assistants or developers, read:
+
+- [`AI_HANDOFF.md`](AI_HANDOFF.md)
+
 ## Backend
 
 Laravel is configured to use MySQL/MariaDB by default.
