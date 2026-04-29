@@ -1136,6 +1136,11 @@
   min-height: 120px;
 }
 
+.dp-banner-upload-controls {
+  display: grid;
+  gap: 12px;
+}
+
 .dp-board-theme-controls {
   display: grid;
   gap: 14px;
@@ -1439,6 +1444,8 @@
   display: grid;
   place-items: end start;
   padding: 16px;
+  background-position: center;
+  background-size: cover;
 }
 
 .dp-shop-preview span {

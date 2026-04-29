@@ -51,7 +51,7 @@ Implemented:
 - Daily missions
 - Achievements
 - Organized store catalog with filters, search, sorting, featured bundle, and bundle detail modal
-- Admin-configurable store card preview banner colors
+- Admin-uploaded store card preview banner images with color fallback
 
 Not implemented yet:
 
@@ -301,7 +301,8 @@ Important current behavior:
   - `queen`
   - `king`
 - Uploaded board-image cosmetics were intentionally removed from gameplay because they caused alignment issues.
-- Store card preview banners are controlled by `preview.primary` and `preview.secondary`.
+- Store card preview banners prefer `preview.banner` as an uploaded image data URL.
+- `preview.primary` and `preview.secondary` remain as fallback colors for cosmetics without a banner image.
 
 Models:
 
@@ -418,7 +419,7 @@ Admin features:
 - create cosmetics
 - edit cosmetics
 - upload piece assets into bundles
-- configure store card preview banner colors
+- upload store card preview banner images
 - collapse/expand catalog rows
 
 Admin UI lives mostly in:

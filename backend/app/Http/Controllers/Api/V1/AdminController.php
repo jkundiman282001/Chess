@@ -106,8 +106,9 @@ class AdminController extends Controller
             'sort_order' => ['required', 'integer', 'min:0'],
             'is_active' => ['required', 'boolean'],
             'preview' => ['nullable', 'array'],
-            'preview.primary' => ['required_with:preview', 'regex:/^#[0-9A-Fa-f]{6}$/'],
-            'preview.secondary' => ['required_with:preview', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'preview.primary' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'preview.secondary' => ['nullable', 'regex:/^#[0-9A-Fa-f]{6}$/'],
+            'preview.banner' => ['nullable', 'string', 'max:3000000'],
             'assets' => ['nullable', 'array'],
             'assets.*' => ['nullable', 'string', 'max:3000000'],
         ];
@@ -123,6 +124,15 @@ class AdminController extends Controller
             $assets = array_intersect_key($assets, array_flip(self::ASSET_KEYS));
         }
 
+        $preview = [
+            'primary' => $validated['preview']['primary'] ?? '#b58863',
+            'secondary' => $validated['preview']['secondary'] ?? '#f0d9b5',
+        ];
+
+        if (! empty($validated['preview']['banner'])) {
+            $preview['banner'] = $validated['preview']['banner'];
+        }
+
         return [
             'slug' => $validated['slug'],
             'name' => $validated['name'],
@@ -132,10 +142,7 @@ class AdminController extends Controller
             'price_soft_currency' => $validated['price_soft_currency'],
             'sort_order' => $validated['sort_order'],
             'is_active' => $validated['is_active'],
-            'preview' => [
-                'primary' => $validated['preview']['primary'] ?? '#b58863',
-                'secondary' => $validated['preview']['secondary'] ?? '#f0d9b5',
-            ],
+            'preview' => $preview,
             'assets' => $assets,
         ];
     }

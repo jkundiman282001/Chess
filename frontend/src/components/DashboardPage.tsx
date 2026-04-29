@@ -71,6 +71,7 @@ type DashboardPageProps = {
     preview: {
       primary: string
       secondary: string
+      banner?: string
     }
     assets: Record<string, string>
   }) => void
@@ -86,6 +87,7 @@ type DashboardPageProps = {
     preview: {
       primary: string
       secondary: string
+      banner?: string
     }
     assets: Record<string, string>
   }) => void
@@ -123,6 +125,7 @@ type CosmeticEditor = {
   preview: {
     primary: string
     secondary: string
+    banner?: string
   }
   assets: Record<string, string>
 }
@@ -232,6 +235,7 @@ function DashboardPage({
     preview: {
       primary: '#b58863',
       secondary: '#f0d9b5',
+      banner: '',
     },
     assets: {},
   })
@@ -1093,7 +1097,7 @@ function DashboardPage({
             {selectedBundle ? (
               <div className="dp-bundle-modal" role="dialog" aria-modal="true">
                 <div className="dp-bundle-card">
-                  <div className="dp-shop-preview" style={{ background: `linear-gradient(135deg, ${selectedBundle.preview?.primary ?? '#b58863'}, ${selectedBundle.preview?.secondary ?? '#f0d9b5'})` }}>
+                  <div className="dp-shop-preview" style={getStorePreviewStyle(selectedBundle.preview)}>
                     <span>Bundle</span>
                   </div>
                   <div className="dp-shop-copy">
@@ -1195,9 +1199,7 @@ function DashboardPage({
                   <div className="dp-store-featured">
                     <div
                       className="dp-store-featured-visual"
-                      style={{
-                        background: `linear-gradient(135deg, ${featuredBundle.preview?.primary ?? '#b58863'}, ${featuredBundle.preview?.secondary ?? '#f0d9b5'})`,
-                      }}
+                      style={getStorePreviewStyle(featuredBundle.preview)}
                     >
                       <span>Featured Bundle</span>
                     </div>
@@ -1471,6 +1473,7 @@ function DashboardPage({
                       preview: {
                         primary: item.preview?.primary ?? '#b58863',
                         secondary: item.preview?.secondary ?? '#f0d9b5',
+                        banner: item.preview?.banner ?? '',
                       },
                       assets: item.assets ?? {},
                       ...cosmeticDrafts[item.id],
@@ -1554,6 +1557,31 @@ function renderCosmeticFields(
     reader.readAsDataURL(file)
   }
 
+  const handleBannerChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+
+    if (!file) {
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : null
+
+      if (!result) {
+        return
+      }
+
+      onPatch({
+        preview: {
+          ...value.preview,
+          banner: result,
+        },
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+
   return (
     <>
       <label className="dp-field">
@@ -1599,45 +1627,38 @@ function renderCosmeticFields(
         <div className="dp-admin-preview-grid">
           <div
             className="dp-shop-preview dp-admin-shop-preview"
-            style={{
-              background: `linear-gradient(135deg, ${value.preview.primary}, ${value.preview.secondary})`,
-            }}
+            style={getStorePreviewStyle(value.preview)}
           >
             <span>{value.category === 'bundle' ? 'Bundle' : value.category === 'board' ? 'Board' : 'Pieces'}</span>
           </div>
-          <div className="dp-board-theme-color-grid">
+          <div className="dp-banner-upload-controls">
             <label className="dp-field">
-              <span className="dp-field-label">Primary</span>
+              <span className="dp-field-label">Banner Image</span>
               <input
-                className="dp-color-input"
-                type="color"
-                value={value.preview.primary}
-                onChange={(event) =>
+                accept="image/*"
+                className="dp-input"
+                onChange={(event) => void handleBannerChange(event)}
+                type="file"
+              />
+            </label>
+            {value.preview.banner ? (
+              <button
+                className="dp-btn-secondary"
+                onClick={() =>
                   onPatch({
                     preview: {
                       ...value.preview,
-                      primary: event.target.value,
+                      banner: '',
                     },
                   })
                 }
-              />
-            </label>
-            <label className="dp-field">
-              <span className="dp-field-label">Secondary</span>
-              <input
-                className="dp-color-input"
-                type="color"
-                value={value.preview.secondary}
-                onChange={(event) =>
-                  onPatch({
-                    preview: {
-                      ...value.preview,
-                      secondary: event.target.value,
-                    },
-                  })
-                }
-              />
-            </label>
+                type="button"
+              >
+                Remove Banner
+              </button>
+            ) : (
+              <span className="dp-inline-muted">Recommended: wide image, around 1200x420, under 2 MB.</span>
+            )}
           </div>
         </div>
       </div>
@@ -1708,9 +1729,7 @@ function StoreSection({
             <article className="dp-shop-card" key={item.slug}>
               <div
                 className="dp-shop-preview"
-                style={{
-                  background: `linear-gradient(135deg, ${item.preview?.primary ?? '#b58863'}, ${item.preview?.secondary ?? '#f0d9b5'})`,
-                }}
+                style={getStorePreviewStyle(item.preview)}
               >
                 <span>{item.category === 'board' ? 'Board' : 'Pieces'}</span>
               </div>
@@ -1786,6 +1805,21 @@ function compareStoreItemsByMode(
   }
 
   return compareStoreItems(left, right)
+}
+
+function getStorePreviewStyle(preview: Record<string, string> | null | undefined): CSSProperties {
+  const primary = preview?.primary ?? '#b58863'
+  const secondary = preview?.secondary ?? '#f0d9b5'
+
+  if (preview?.banner) {
+    return {
+      backgroundImage: `linear-gradient(180deg, rgba(0, 0, 0, 0.05), rgba(0, 0, 0, 0.56)), url(${preview.banner})`,
+    }
+  }
+
+  return {
+    background: `linear-gradient(135deg, ${primary}, ${secondary})`,
+  }
 }
 
 function pickFeaturedBundle(items: ShopState['items']) {

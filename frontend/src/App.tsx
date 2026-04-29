@@ -661,6 +661,7 @@ function App() {
     preview: {
       primary: string
       secondary: string
+      banner?: string
     }
     assets: Record<string, string>
   }) {
@@ -700,6 +701,7 @@ function App() {
       preview: {
         primary: string
         secondary: string
+        banner?: string
       }
       assets: Record<string, string>
     },

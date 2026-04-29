@@ -9,6 +9,10 @@ For a full project handoff written for future AI assistants or developers, read:
 
 - [`AI_HANDOFF.md`](AI_HANDOFF.md)
 
+For a record of project changes and the documentation rule for future modifications, read:
+
+- [`CHANGELOG.md`](CHANGELOG.md)
+
 ## Backend
 
 Laravel is configured to use MySQL/MariaDB by default.

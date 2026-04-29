@@ -278,6 +278,7 @@ export function createAdminCosmetic(
     preview: {
       primary: string
       secondary: string
+      banner?: string
     }
     assets: Record<string, string>
   },
@@ -304,6 +305,7 @@ export function updateAdminCosmetic(
     preview: {
       primary: string
       secondary: string
+      banner?: string
     }
     assets: Record<string, string>
   },
