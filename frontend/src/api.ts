@@ -170,11 +170,22 @@ export function fetchGamesIncludingHidden(token: string) {
   return apiRequest<GameListResponse>('/games?include_hidden=1', { token })
 }
 
+export function fetchOpenCasualGames(token: string) {
+  return apiRequest<{ data: GameSummary[] }>('/games/open/casual', { token })
+}
+
 export function fetchGame(token: string, gameId: string) {
   return apiRequest<{ game: GameSummary }>(`/games/${gameId}`, { token })
 }
 
-export function submitAiMove(
+export function joinCasualGame(token: string, gameId: string) {
+  return apiRequest<{ game: GameSummary }>(`/games/${gameId}/join`, {
+    method: 'POST',
+    token,
+  })
+}
+
+export function submitGameMove(
   token: string,
   gameId: string,
   payload: {
@@ -191,7 +202,7 @@ export function submitAiMove(
   })
 }
 
-export function resignAiGame(token: string, gameId: string) {
+export function resignGame(token: string, gameId: string) {
   return apiRequest<{ game: GameSummary; user: User }>(`/games/${gameId}/resign`, {
     method: 'POST',
     token,

@@ -44,8 +44,10 @@ type DashboardPageProps = {
   onApplyBoardTheme: (theme: BoardTheme) => void
   profileBusy: boolean
   games: GameSummary[]
+  openCasualGames: GameSummary[]
   onRefreshGames: () => void
   onOpenGame: (gameId: string) => void
+  onJoinCasualGame: (gameId: string) => void
   onHideGame: (gameId: string) => void
   onUnhideGame: (gameId: string) => void
   shop: ShopState | null
@@ -186,8 +188,10 @@ function DashboardPage({
   onApplyBoardTheme,
   profileBusy,
   games,
+  openCasualGames,
   onRefreshGames,
   onOpenGame,
+  onJoinCasualGame,
   onHideGame,
   onUnhideGame,
   shop,
@@ -401,7 +405,7 @@ function DashboardPage({
                           onGameFormChange((c) => ({ ...c, mode: e.target.value as CreateGameForm['mode'] }))
                         }
                       >
-                        <option disabled value="casual">Casual (future)</option>
+                        <option value="casual">Casual</option>
                         <option disabled value="ranked">Ranked (future)</option>
                         <option value="ai">Versus AI</option>
                       </select>
@@ -471,8 +475,8 @@ function DashboardPage({
                   </div>
 
                   <p className="dp-form-note">
-                    AI mode is the currently playable path. Online multiplayer stays disabled until
-                    server-side move validation exists.
+                    Casual mode creates an open lobby. Another account can join from the Games tab.
+                    Ranked remains locked until matchmaking and anti-abuse rules are ready.
                   </p>
 
                   <button className="dp-btn-primary dp-game-submit" disabled={gamesBusy} type="submit">
@@ -1010,6 +1014,39 @@ function DashboardPage({
               </button>
             </div>
 
+            <section className="dp-casual-lobby">
+              <div className="dp-games-header">
+                <div>
+                  <h3 className="dp-subsection-title">Open Casual Lobbies</h3>
+                  <p className="dp-section-sub">{openCasualGames.length} waiting match{openCasualGames.length !== 1 ? 'es' : ''}</p>
+                </div>
+              </div>
+
+              {openCasualGames.length === 0 ? (
+                <div className="dp-empty">
+                  <p>No open casual lobbies right now. Create one from Overview.</p>
+                </div>
+              ) : (
+                <div className="dp-lobby-grid">
+                  {openCasualGames.map((game) => (
+                    <article className="dp-lobby-card" key={game.id}>
+                      <div>
+                        <span className="dp-game-mode">CASUAL</span>
+                        <h4>
+                          {game.players.white?.username ?? 'Open'} <em>vs</em>{' '}
+                          {game.players.black?.username ?? 'Open'}
+                        </h4>
+                        <p>{game.time_control_name} · waiting for opponent</p>
+                      </div>
+                      <button className="dp-btn-primary" disabled={gamesBusy} onClick={() => onJoinCasualGame(game.id)} type="button">
+                        Join
+                      </button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
             {visibleGames.length === 0 ? (
               <div className="dp-empty dp-empty--lg">
                 <span className="dp-empty-glyph" aria-hidden="true">♟</span>
@@ -1041,9 +1078,9 @@ function DashboardPage({
                     </span>
                     <span className="dp-game-id">{game.id}</span>
                     <div className="dp-inline-group">
-                      {game.mode === 'ai' ? (
+                      {game.mode === 'ai' || game.mode === 'casual' ? (
                         <button className="dp-inline-action" onClick={() => onOpenGame(game.id)} type="button">
-                          Play
+                          {game.status === 'waiting' ? 'Open' : 'Play'}
                         </button>
                       ) : (
                         <span className="dp-inline-muted">Future</span>

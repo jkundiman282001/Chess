@@ -36,8 +36,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('/shop/unequip', [ShopController::class, 'unequip']);
 
         Route::get('/games', [GameController::class, 'index']);
+        Route::get('/games/open/casual', [GameController::class, 'openCasual']);
         Route::post('/games', [GameController::class, 'store']);
         Route::get('/games/{game:public_id}', [GameController::class, 'show']);
+        Route::post('/games/{game:public_id}/join', [GameController::class, 'join']);
         Route::post('/games/{game:public_id}/moves', [GameController::class, 'storeMove']);
         Route::post('/games/{game:public_id}/resign', [GameController::class, 'resign']);
         Route::post('/games/{game:public_id}/hide', [GameController::class, 'hide']);

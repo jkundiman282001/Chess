@@ -138,8 +138,28 @@ export type GameSummary = {
   } | null
   hidden: boolean
   players: {
-    white: { id: number; username: string; name: string } | null
-    black: { id: number; username: string; name: string } | null
+    white: {
+      id: number
+      username: string
+      name: string
+      equipped_piece_set: {
+        slug: string
+        name: string
+        preview: Record<string, string> | null
+        assets: Record<string, string> | null
+      } | null
+    } | null
+    black: {
+      id: number
+      username: string
+      name: string
+      equipped_piece_set: {
+        slug: string
+        name: string
+        preview: Record<string, string> | null
+        assets: Record<string, string> | null
+      } | null
+    } | null
     winner: { id: number; username: string; name: string } | null
   }
   started_at: string | null

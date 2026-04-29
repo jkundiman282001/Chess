@@ -17,6 +17,7 @@ import {
   fetchAdminUsers,
   fetchCurrentUser,
   fetchGamesIncludingHidden,
+  fetchOpenCasualGames,
   fetchProfile,
   fetchShop,
   getApiUrl,
@@ -25,6 +26,7 @@ import {
   login,
   logout,
   hideGame,
+  joinCasualGame,
   purchaseCosmetic,
   register,
   setStoredToken,
@@ -74,6 +76,7 @@ function App() {
   const [token, setToken] = useState<string | null>(() => getStoredToken())
   const [user, setUser] = useState<User | null>(null)
   const [games, setGames] = useState<GameSummary[]>([])
+  const [openCasualGames, setOpenCasualGames] = useState<GameSummary[]>([])
   const [activeGame, setActiveGame] = useState<GameSummary | null>(null)
   const [shop, setShop] = useState<ShopState | null>(null)
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([])
@@ -161,8 +164,11 @@ function App() {
       try {
         const currentUserResponse = await fetchCurrentUser(activeToken)
         const profileResponse = await fetchProfile(activeToken)
-        const gamesResponse = await fetchGamesIncludingHidden(activeToken)
-        const shopResponse = await fetchShop(activeToken)
+        const [gamesResponse, openCasualResponse, shopResponse] = await Promise.all([
+          fetchGamesIncludingHidden(activeToken),
+          fetchOpenCasualGames(activeToken),
+          fetchShop(activeToken),
+        ])
 
         if (cancelled) return
 
@@ -185,6 +191,7 @@ function App() {
         })
 
         setGames(gamesResponse.data)
+        setOpenCasualGames(openCasualResponse.data)
         syncShop(shopResponse)
       } catch (err) {
         if (cancelled) return
@@ -193,6 +200,7 @@ function App() {
         setToken(null)
         setUser(null)
         setGames([])
+        setOpenCasualGames([])
         setActiveGame(null)
         setShop(null)
 
@@ -216,8 +224,12 @@ function App() {
   }, [token])
 
   async function refreshGames(activeToken: string) {
-    const gamesResponse = await fetchGamesIncludingHidden(activeToken)
+    const [gamesResponse, openCasualResponse] = await Promise.all([
+      fetchGamesIncludingHidden(activeToken),
+      fetchOpenCasualGames(activeToken),
+    ])
     setGames(gamesResponse.data)
+    setOpenCasualGames(openCasualResponse.data)
   }
 
   async function refreshShop(activeToken: string) {
@@ -242,6 +254,7 @@ function App() {
         ? currentGames.map((currentGame) => (currentGame.id === game.id ? game : currentGame))
         : [game, ...currentGames],
     )
+    setOpenCasualGames((currentGames) => currentGames.filter((currentGame) => currentGame.id !== game.id))
   }
 
   function syncUser(nextUser: User) {
@@ -407,6 +420,7 @@ function App() {
       setToken(null)
       setUser(null)
       setGames([])
+      setOpenCasualGames([])
       setActiveGame(null)
       setShop(null)
       setAdminUsers([])
@@ -518,12 +532,16 @@ function App() {
       await refreshGames(token)
       setView('games')
 
-      if (response.game.mode === 'ai') {
+      if (response.game.mode === 'ai' || response.game.mode === 'casual') {
         const gameDetail = await fetchGame(token, response.game.id)
         syncGame(gameDetail.game)
       }
 
-      setMessage(`Game ${response.game.id} created.`)
+      setMessage(
+        response.game.mode === 'casual'
+          ? `Casual lobby ${response.game.id} created.`
+          : `Game ${response.game.id} created.`,
+      )
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : 'Game creation failed.')
     } finally {
@@ -1173,6 +1191,7 @@ function App() {
             onApplyBoardTheme={handleApplyBoardTheme}
             profileBusy={profileBusy}
             games={games}
+            openCasualGames={openCasualGames}
             shop={shop}
             shopBusy={shopBusy}
             adminUsers={adminUsers}
@@ -1211,6 +1230,27 @@ function App() {
                     requestError instanceof Error
                       ? requestError.message
                       : 'Could not refresh games.',
+                  ),
+                )
+                .finally(() => setGamesBusy(false))
+            }}
+            onJoinCasualGame={(gameId) => {
+              if (!token) {
+                return
+              }
+
+              setGamesBusy(true)
+              setError(null)
+              void joinCasualGame(token, gameId)
+                .then((response) => {
+                  syncGame(response.game)
+                  setMessage('Casual match joined.')
+                })
+                .catch((requestError: unknown) =>
+                  setError(
+                    requestError instanceof Error
+                      ? requestError.message
+                      : 'Could not join casual match.',
                   ),
                 )
                 .finally(() => setGamesBusy(false))

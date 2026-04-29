@@ -9,7 +9,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreGameMoveRequest;
 use App\Http\Requests\StoreGameRequest;
 use App\Models\Game;
+use App\Models\User;
 use App\Services\AiGameService;
+use App\Services\CasualGameService;
 use App\Services\GameRewardService;
 use App\Services\ShopService;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +23,7 @@ class GameController extends Controller
 {
     public function __construct(
         private readonly AiGameService $aiGameService,
+        private readonly CasualGameService $casualGameService,
         private readonly GameRewardService $gameRewardService,
         private readonly ShopService $shopService,
     ) {}
@@ -38,7 +41,13 @@ class GameController extends Controller
         $hiddenGameIds = $user->hiddenGames()->pluck('game_id');
 
         $games = Game::query()
-            ->with(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name'])
+            ->with([
+                'whitePlayer:id,username,name',
+                'whitePlayer.profile.equippedPieceCosmetic',
+                'blackPlayer:id,username,name',
+                'blackPlayer.profile.equippedPieceCosmetic',
+                'winner:id,username,name',
+            ])
             ->where(function ($query) use ($userId): void {
                 $query
                     ->where('created_by_user_id', $userId)
@@ -61,6 +70,41 @@ class GameController extends Controller
                 'per_page' => $games->perPage(),
                 'total' => $games->total(),
             ],
+        ]);
+    }
+
+    public function openCasual(Request $request): JsonResponse
+    {
+        $userId = $request->user()->id;
+
+        $games = Game::query()
+            ->with([
+                'whitePlayer:id,username,name',
+                'whitePlayer.profile.equippedPieceCosmetic',
+                'blackPlayer:id,username,name',
+                'blackPlayer.profile.equippedPieceCosmetic',
+                'winner:id,username,name',
+            ])
+            ->where('mode', GameMode::Casual)
+            ->where('status', GameStatus::Waiting)
+            ->where(function ($query) use ($userId): void {
+                $query
+                    ->where('white_player_id', '!=', $userId)
+                    ->orWhereNull('white_player_id');
+            })
+            ->where(function ($query) use ($userId): void {
+                $query
+                    ->where('black_player_id', '!=', $userId)
+                    ->orWhereNull('black_player_id');
+            })
+            ->latest('id')
+            ->limit(20)
+            ->get();
+
+        return response()->json([
+            'data' => $games
+                ->map(fn (Game $game) => $this->formatGame($game, false, false))
+                ->all(),
         ]);
     }
 
@@ -104,7 +148,14 @@ class GameController extends Controller
         }
 
         return response()->json([
-            'game' => $this->formatGame($game->load(['whitePlayer:id,username,name', 'blackPlayer:id,username,name', 'winner:id,username,name', 'moves.user:id,username,name']), true, false),
+            'game' => $this->formatGame($game->load([
+                'whitePlayer:id,username,name',
+                'whitePlayer.profile.equippedPieceCosmetic',
+                'blackPlayer:id,username,name',
+                'blackPlayer.profile.equippedPieceCosmetic',
+                'winner:id,username,name',
+                'moves.user:id,username,name',
+            ]), true, false),
         ], 201);
     }
 
@@ -119,7 +170,9 @@ class GameController extends Controller
         $game->load([
             'creator:id,username,name',
             'whitePlayer:id,username,name',
+            'whitePlayer.profile.equippedPieceCosmetic',
             'blackPlayer:id,username,name',
+            'blackPlayer.profile.equippedPieceCosmetic',
             'winner:id,username,name',
             'moves.user:id,username,name',
         ]);
@@ -129,19 +182,45 @@ class GameController extends Controller
         ]);
     }
 
+    public function join(Request $request, Game $game): JsonResponse
+    {
+        try {
+            $game = $this->casualGameService->join($game, $request->user());
+        } catch (RuntimeException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'game' => $this->formatGame($game, true, false),
+        ]);
+    }
+
     public function storeMove(StoreGameMoveRequest $request, Game $game): JsonResponse
     {
         $this->authorizeGameAccess($request->user()->id, $game);
 
         try {
-            $game = $this->aiGameService->submitPlayerMove(
-                game: $game,
-                user: $request->user(),
-                from: $request->string('from')->toString(),
-                to: $request->string('to')->toString(),
-                promotion: $request->input('promotion'),
-                stateVersion: $request->integer('state_version'),
-            );
+            $game = match ($game->mode) {
+                GameMode::Ai => $this->aiGameService->submitPlayerMove(
+                    game: $game,
+                    user: $request->user(),
+                    from: $request->string('from')->toString(),
+                    to: $request->string('to')->toString(),
+                    promotion: $request->input('promotion'),
+                    stateVersion: $request->integer('state_version'),
+                ),
+                GameMode::Casual => $this->casualGameService->submitPlayerMove(
+                    game: $game,
+                    user: $request->user(),
+                    from: $request->string('from')->toString(),
+                    to: $request->string('to')->toString(),
+                    promotion: $request->input('promotion'),
+                    stateVersion: $request->integer('state_version'),
+                ),
+                default => throw new RuntimeException('This game mode cannot accept moves yet.'),
+            };
         } catch (RuntimeException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -159,7 +238,11 @@ class GameController extends Controller
         $this->authorizeGameAccess($request->user()->id, $game);
 
         try {
-            $game = $this->aiGameService->resign($game, $request->user());
+            $game = match ($game->mode) {
+                GameMode::Ai => $this->aiGameService->resign($game, $request->user()),
+                GameMode::Casual => $this->casualGameService->resign($game, $request->user()),
+                default => throw new RuntimeException('This game mode cannot be resigned yet.'),
+            };
         } catch (RuntimeException $exception) {
             return response()->json([
                 'message' => $exception->getMessage(),
@@ -231,11 +314,13 @@ class GameController extends Controller
                     'id' => $game->whitePlayer->id,
                     'username' => $game->whitePlayer->username,
                     'name' => $game->whitePlayer->name,
+                    'equipped_piece_set' => $this->formatEquippedPieceSet($game->whitePlayer),
                 ] : null,
                 'black' => $game->blackPlayer ? [
                     'id' => $game->blackPlayer->id,
                     'username' => $game->blackPlayer->username,
                     'name' => $game->blackPlayer->name,
+                    'equipped_piece_set' => $this->formatEquippedPieceSet($game->blackPlayer),
                 ] : null,
                 'winner' => $game->winner ? [
                     'id' => $game->winner->id,
@@ -262,6 +347,22 @@ class GameController extends Controller
                     ] : null,
                 ])->all()
                 : null,
+        ];
+    }
+
+    private function formatEquippedPieceSet(User $user): ?array
+    {
+        $pieceSet = $user->profile?->equippedPieceCosmetic;
+
+        if ($pieceSet === null) {
+            return null;
+        }
+
+        return [
+            'slug' => $pieceSet->slug,
+            'name' => $pieceSet->name,
+            'preview' => $pieceSet->preview,
+            'assets' => $pieceSet->assets,
         ];
     }
 

@@ -2,7 +2,7 @@ import { Chess, type Square } from 'chess.js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import './GameRoom.css'
-import { resignAiGame, submitAiMove } from '../api'
+import { fetchGame, resignGame, submitGameMove } from '../api'
 import type { BoardTheme, CosmeticItem, GameSummary, ShopState, User } from '../types'
 
 type GameRoomProps = {
@@ -92,8 +92,17 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
         : null
 
   const isAiGame = game.mode === 'ai'
+  const isCasualGame = game.mode === 'casual'
   const aiTurn = isAiGame && playerColor !== null && engine.turn() !== playerColor && !engine.isGameOver()
-  const canMove = isAiGame && !submittingMove && !resigning && !aiTurn && playerColor === engine.turn() && !engine.isGameOver()
+  const isPlayerTurn = playerColor === engine.turn()
+  const canMove =
+    (isAiGame || isCasualGame) &&
+    game.status === 'active' &&
+    !submittingMove &&
+    !resigning &&
+    !aiTurn &&
+    isPlayerTurn &&
+    !engine.isGameOver()
   const files = playerColor === 'b' ? [...FILES].reverse() : FILES
   const ranks = playerColor === 'b' ? [...RANKS].reverse() : RANKS
   const boardTheme = currentUser.profile.board_theme
@@ -103,6 +112,16 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
     () => pickAiPieceBundle(shop?.items ?? [], equippedPieceSlug, game.id),
     [equippedPieceSlug, game.id, shop?.items],
   )
+  const whitePieceSet = isCasualGame
+    ? game.players.white?.equipped_piece_set ?? null
+    : playerColor === 'w'
+      ? currentUser.profile.equipped_piece_set
+      : aiPieceBundle
+  const blackPieceSet = isCasualGame
+    ? game.players.black?.equipped_piece_set ?? null
+    : playerColor === 'b'
+      ? currentUser.profile.equipped_piece_set
+      : aiPieceBundle
   const resignationModalVisible =
     game.status === 'finished' && game.termination_reason === 'resignation'
   const statusMessage = useMemo(() => {
@@ -130,10 +149,39 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
       return 'AI is thinking...'
     }
 
-    return isAiGame
-      ? 'Your move.'
-      : 'Board preview only. Multiplayer submission is a future backend step.'
-  }, [aiTurn, currentUser, engine, game, isAiGame, resigning, submittingMove, thinkingModalVisible])
+    if (game.status === 'waiting') {
+      return 'Waiting for an opponent to join.'
+    }
+
+    if (isCasualGame) {
+      return isPlayerTurn ? 'Your move.' : 'Opponent turn. Waiting for their move.'
+    }
+
+    return isAiGame ? 'Your move.' : 'Board preview only.'
+  }, [aiTurn, currentUser, engine, game, isAiGame, isCasualGame, isPlayerTurn, resigning, submittingMove, thinkingModalVisible])
+
+  useEffect(() => {
+    const shouldPollCasualGame =
+      isCasualGame &&
+      (game.status === 'waiting' || (game.status === 'active' && !isPlayerTurn)) &&
+      !engine.isGameOver()
+
+    if (!shouldPollCasualGame) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      void fetchGame(token, game.id)
+        .then((response) => {
+          onGameChange(response.game)
+        })
+        .catch(() => {
+          // Keep the local board usable; manual refresh/open still handles hard failures.
+        })
+    }, 3000)
+
+    return () => window.clearInterval(intervalId)
+  }, [engine, game.id, game.status, isCasualGame, isPlayerTurn, onGameChange, token])
 
   function handleSquareClick(square: Square) {
     if (!canMove) {
@@ -185,7 +233,7 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
         },
       })
 
-      const response = await submitAiMove(token, game.id, {
+      const response = await submitGameMove(token, game.id, {
         from,
         to,
         promotion: 'q',
@@ -196,7 +244,7 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
       setLegalTargets([])
 
       const aiResponded =
-        (response.game.moves?.length ?? 0) > (game.moves?.length ?? 0) + 1
+        isAiGame && (response.game.moves?.length ?? 0) > (game.moves?.length ?? 0) + 1
 
       if (aiResponded && !response.game.ended_at) {
         setThinkingModalVisible(true)
@@ -225,7 +273,7 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
     setRoomError(null)
 
     try {
-      const response = await resignAiGame(token, game.id)
+      const response = await resignGame(token, game.id)
       setSelectedSquare(null)
       setLegalTargets([])
       onGameChange(response.game)
@@ -321,12 +369,12 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
         <header className="gr-header">
           <div>
             <p className="gr-label">Play Room</p>
-            <h1>{isAiGame ? 'Versus AI' : 'Board Viewer'}</h1>
+            <h1>{isAiGame ? 'Versus AI' : isCasualGame ? 'Casual Match' : 'Board Viewer'}</h1>
           </div>
           <div className="gr-header-meta">
             <span>{playerColor === 'w' ? 'You are White' : playerColor === 'b' ? 'You are Black' : 'Observer'}</span>
             <code>{game.id}</code>
-            {isAiGame && !engine.isGameOver() ? (
+            {(isAiGame || isCasualGame) && game.status === 'active' && !engine.isGameOver() ? (
               <button className="gr-resign" disabled={submittingMove || resigning} onClick={() => void handleResign()} type="button">
                 {resigning ? 'Resigning…' : 'Resign'}
               </button>
@@ -383,11 +431,8 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
                         ? renderPiece(
                             piece.color,
                             piece.type,
-                            playerColor,
-                          currentUser.profile.equipped_piece_set?.assets,
-                          currentUser.profile.equipped_piece_set?.slug ?? null,
-                          currentUser.profile.equipped_piece_set?.name ?? null,
-                          aiPieceBundle?.assets ?? null,
+                            whitePieceSet,
+                            blackPieceSet,
                           currentUser.profile.default_piece_sets,
                         )
                       : null}
@@ -409,38 +454,20 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
 function renderPiece(
   color: string,
   type: string,
-  playerColor: 'w' | 'b' | null,
-  assets: Record<string, string> | null | undefined,
-  bundleSlug: string | null,
-  bundleName: string | null,
-  aiAssets: Record<string, string> | null,
+  whitePieceSet: NonNullable<GameSummary['players']['white']>['equipped_piece_set'] | null,
+  blackPieceSet: NonNullable<GameSummary['players']['black']>['equipped_piece_set'] | null,
   defaultPieceSets: User['profile']['default_piece_sets'],
 ) {
   const unicodeKey = `${color}${type}`
   const assetKey = PIECE_ASSET_KEY[type] ?? ''
+  const pieceSet = color === 'w' ? whitePieceSet : blackPieceSet
   const defaultAsset =
     color === 'w'
       ? defaultPieceSets.white?.assets?.[assetKey]
       : defaultPieceSets.black?.assets?.[assetKey]
-  const assetSrc = assets?.[assetKey]
+  const assetSrc = pieceSet?.assets?.[assetKey]
 
-  if (playerColor !== null && color !== playerColor) {
-    if (aiAssets?.[assetKey]) {
-      return <img alt="" className="gr-piece-image" src={aiAssets[assetKey]} />
-    }
-
-    if (defaultAsset) {
-      return <img alt="" className="gr-piece-image" src={defaultAsset} />
-    }
-
-    return (
-      <span className={`gr-piece ${color === 'w' ? 'is-white' : 'is-black'}`}>
-        {PIECE_MAP[unicodeKey]}
-      </span>
-    )
-  }
-
-  if (!bundleAppliesToColor(color, bundleSlug, bundleName)) {
+  if (!bundleAppliesToColor(color, pieceSet?.slug ?? null, pieceSet?.name ?? null)) {
     if (defaultAsset) {
       return <img alt="" className="gr-piece-image" src={defaultAsset} />
     }

@@ -2104,6 +2104,57 @@
   margin-top: 6px;
 }
 
+.dp-subsection-title {
+  font: 400 1.25rem/1 var(--serif);
+  color: var(--ivory);
+}
+
+.dp-casual-lobby {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(201, 168, 76, 0.06), transparent 45%),
+    var(--void-1);
+}
+
+.dp-lobby-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.dp-lobby-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.dp-lobby-card h4 {
+  margin: 8px 0 6px;
+  font: 400 1.05rem/1.15 var(--serif);
+  color: var(--ivory);
+}
+
+.dp-lobby-card h4 em {
+  color: var(--ivory-mute);
+  font-style: normal;
+}
+
+.dp-lobby-card p {
+  font: 400 0.72rem/1.4 var(--mono);
+  color: var(--ivory-mute);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
 /* Table */
 .dp-game-table {
   border: 1px solid var(--border);
@@ -2314,6 +2365,10 @@
   .dp-shop-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .dp-lobby-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 640px) {
@@ -2404,6 +2459,11 @@
 
   .dp-store-featured-actions {
     flex-wrap: wrap;
+  }
+
+  .dp-lobby-card {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .dp-game-table-head,

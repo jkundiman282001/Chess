@@ -165,3 +165,40 @@ Verification:
 
 Notes:
 - This is a frontend-only redesign. Store APIs and database schema were not changed.
+
+## 2026-04-29 - Casual Mode MVP
+
+Area: Full stack
+
+Summary:
+- Enabled Casual mode in the new-game form.
+- Added open casual lobbies so one user can create a waiting game and another account can join it.
+- Added backend casual move validation, turn enforcement, checkmate/draw finalization, and resignation handling.
+- Updated the game room so casual matches are playable, show the correct status, allow resigning, and poll while waiting for the opponent.
+- Added a Games-tab lobby section for open casual matches.
+
+Files:
+- `backend/app/Services/CasualGameService.php`
+- `backend/app/Http/Controllers/Api/V1/GameController.php`
+- `backend/routes/api.php`
+- `frontend/src/api.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/components/DashboardPage.tsx`
+- `frontend/src/components/DashboardPage.css`
+- `frontend/src/components/GameRoom.tsx`
+- `AI_HANDOFF.md`
+- `CHANGELOG.md`
+
+Setup:
+- None. This uses existing `games` and `game_moves` tables.
+
+Verification:
+- `php -l backend/app/Services/CasualGameService.php`
+- `php -l backend/app/Http/Controllers/Api/V1/GameController.php`
+- `cd backend && vendor/bin/pint --test app/Services/CasualGameService.php app/Http/Controllers/Api/V1/GameController.php routes/api.php`
+- `cd frontend && npm run build`
+- `cd frontend && npm run lint`
+
+Notes:
+- This is not WebSocket real-time multiplayer yet. Casual rooms use HTTP refresh/polling as the MVP-safe implementation.
+- Ranked mode remains disabled.

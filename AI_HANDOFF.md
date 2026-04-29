@@ -17,7 +17,7 @@ This is a web-based chess game built as a monorepo:
   - backend can use local Stockfish through a UCI wrapper
   - if Stockfish fails or is missing, backend falls back to a bounded custom AI search
 
-The product is currently AI-first. Multiplayer, ranked PvP, friend lists, and live WebSocket gameplay are planned but not implemented yet.
+The product is currently AI-first with an MVP casual PvP flow. Casual matches are turn-based over HTTP polling; ranked PvP, friend lists, and live WebSocket gameplay are planned but not implemented yet.
 
 ## Current Feature Set
 
@@ -52,12 +52,17 @@ Implemented:
 - Achievements
 - Organized store catalog with storefront hero, wallet/status summary, browse sidebar, featured bundle, and a two-column bundle detail product sheet
 - Admin-uploaded store card preview banner images with color fallback
+- Casual multiplayer MVP:
+  - users can create open casual lobbies
+  - another account can join an open lobby
+  - both players can submit legal moves with backend validation
+  - active casual rooms poll while waiting for the opponent
+  - casual resignation is supported
 
 Not implemented yet:
 
 - Friend list
 - Friend requests
-- Casual multiplayer
 - WebSocket game sync
 - Ranked matchmaking
 - Ranked ratings updates
@@ -159,6 +164,7 @@ Important backend directories:
 Important services:
 
 - `AiGameService`: AI game lifecycle, move validation, AI turn generation, resign finalization
+- `CasualGameService`: casual PvP lobby join, legal move validation, turn enforcement, game finalization, and resignation
 - `StockfishService`: local UCI Stockfish process wrapper
 - `ShopService`: catalog formatting, starter cosmetics, purchase/equip/unequip
 - `GameRewardService`: post-game AI rewards and level updates
@@ -185,8 +191,10 @@ Authenticated:
 - `POST /api/v1/shop/equip`
 - `POST /api/v1/shop/unequip`
 - `GET /api/v1/games`
+- `GET /api/v1/games/open/casual`
 - `POST /api/v1/games`
 - `GET /api/v1/games/{public_id}`
+- `POST /api/v1/games/{public_id}/join`
 - `POST /api/v1/games/{public_id}/moves`
 - `POST /api/v1/games/{public_id}/resign`
 - `POST /api/v1/games/{public_id}/hide`
