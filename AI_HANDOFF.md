@@ -50,7 +50,7 @@ Implemented:
 - XP level progression bar
 - Daily missions
 - Achievements
-- Organized store catalog with filters, search, sorting, featured bundle, and bundle detail modal
+- Organized store catalog with storefront hero, wallet/status summary, browse sidebar, featured bundle, and a two-column bundle detail product sheet
 - Admin-uploaded store card preview banner images with color fallback
 
 Not implemented yet:
@@ -292,6 +292,14 @@ Moves are stored in:
 Important current behavior:
 
 - Store is effectively bundle-focused.
+- Store page layout uses a storefront structure:
+  - top hero with coin balance
+  - status cards for equipped/owned/available counts
+  - sidebar controls for filter/search/sort
+  - main content area for featured bundle and catalog sections
+- Bundle detail opens as a two-column modal:
+  - left side showcases the uploaded banner image
+  - right side shows price, status, piece previews, and buy/equip/unequip actions
 - Piece uploads are stored in `assets` as data URLs.
 - Valid piece asset keys are:
   - `pawn`

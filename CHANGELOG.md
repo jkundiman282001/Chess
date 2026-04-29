@@ -110,3 +110,58 @@ Verification:
 
 Notes:
 - Banner images are currently stored as base64 data URLs in the database. This is acceptable for MVP but should move to file storage later.
+
+## 2026-04-29 - Bundle Detail Product Sheet
+
+Area: Frontend
+
+Summary:
+- Reworked the store bundle detail modal into a two-column product sheet.
+- The left panel now showcases the uploaded banner image with bundle name, rarity, and description.
+- The right panel shows price, ownership/equipped status, piece previews, and direct actions.
+- Added click-outside close behavior and a dedicated close button.
+- Added buy, equip, and unequip actions directly inside the bundle view.
+
+Files:
+- `frontend/src/components/DashboardPage.tsx`
+- `frontend/src/components/DashboardPage.css`
+- `CHANGELOG.md`
+
+Setup:
+- None.
+
+Verification:
+- `cd frontend && npm run build`
+- `cd frontend && npm run lint`
+
+Notes:
+- The modal still falls back to the existing gradient preview when no uploaded banner exists.
+- This is a frontend-only structure change.
+
+## 2026-04-29 - Storefront Layout Redesign
+
+Area: Frontend
+
+Summary:
+- Restructured the player store into a stronger storefront layout.
+- Added a hero header with coin balance and clearer store positioning.
+- Replaced the old top stats row with compact status cards for equipped pieces, starter sets, owned extras, and available bundles.
+- Moved filter, search, sort, and visible-count information into a browse sidebar.
+- Kept the featured bundle and catalog sections in the main content area.
+- Updated responsive behavior so the store collapses cleanly on tablet and mobile screens.
+
+Files:
+- `frontend/src/components/DashboardPage.tsx`
+- `frontend/src/components/DashboardPage.css`
+- `AI_HANDOFF.md`
+- `CHANGELOG.md`
+
+Setup:
+- None.
+
+Verification:
+- `cd frontend && npm run build`
+- `cd frontend && npm run lint`
+
+Notes:
+- This is a frontend-only redesign. Store APIs and database schema were not changed.
