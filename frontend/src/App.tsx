@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 import DashboardPage, {
@@ -39,6 +39,7 @@ import type { AdminCosmeticRecord, AdminUserRecord, BoardTheme, GameSummary, Sho
 
 type AuthMode = 'login' | 'register'
 type GuestView = 'landing' | 'auth'
+const AUTO_REFRESH_INTERVAL_MS = 30000
 
 const initialProfileForm: ProfileForm = {
   username: '',
@@ -223,21 +224,21 @@ function App() {
     }
   }, [token])
 
-  async function refreshGames(activeToken: string) {
+  const refreshGames = useCallback(async (activeToken: string) => {
     const [gamesResponse, openCasualResponse] = await Promise.all([
       fetchGamesIncludingHidden(activeToken),
       fetchOpenCasualGames(activeToken),
     ])
     setGames(gamesResponse.data)
     setOpenCasualGames(openCasualResponse.data)
-  }
+  }, [])
 
-  async function refreshShop(activeToken: string) {
+  const refreshShop = useCallback(async (activeToken: string) => {
     const shopResponse = await fetchShop(activeToken)
     syncShop(shopResponse)
-  }
+  }, [])
 
-  async function refreshAdmin(activeToken: string) {
+  const refreshAdmin = useCallback(async (activeToken: string) => {
     const [usersResponse, cosmeticsResponse] = await Promise.all([
       fetchAdminUsers(activeToken),
       fetchAdminCosmetics(activeToken),
@@ -245,7 +246,47 @@ function App() {
 
     setAdminUsers(usersResponse.users)
     setAdminCosmetics(cosmeticsResponse.items)
-  }
+  }, [])
+
+  useEffect(() => {
+    if (!token || bootstrapping) {
+      return
+    }
+
+    const activeToken = token
+    let cancelled = false
+
+    async function autoRefresh() {
+      if (document.hidden || cancelled) {
+        return
+      }
+
+      try {
+        if (view === 'overview' || view === 'games' || activeGame !== null) {
+          await refreshGames(activeToken)
+        }
+
+        if (view === 'overview' || view === 'store') {
+          await refreshShop(activeToken)
+        }
+
+        if (view === 'admin' && user?.is_admin && adminLoaded) {
+          await refreshAdmin(activeToken)
+        }
+      } catch {
+        // Background refresh should stay silent; explicit user actions still surface errors.
+      }
+    }
+
+    const intervalId = window.setInterval(() => {
+      void autoRefresh()
+    }, AUTO_REFRESH_INTERVAL_MS)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [activeGame, adminLoaded, bootstrapping, refreshAdmin, refreshGames, refreshShop, token, user?.is_admin, view])
 
   function syncGame(game: GameSummary) {
     setActiveGame(game)
