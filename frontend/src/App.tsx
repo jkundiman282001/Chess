@@ -39,7 +39,6 @@ import type { AdminCosmeticRecord, AdminUserRecord, BoardTheme, GameSummary, Sho
 
 type AuthMode = 'login' | 'register'
 type GuestView = 'landing' | 'auth'
-const AUTO_REFRESH_INTERVAL_MS = 30000
 
 const initialProfileForm: ProfileForm = {
   username: '',
@@ -248,45 +247,56 @@ function App() {
     setAdminCosmetics(cosmeticsResponse.items)
   }, [])
 
-  useEffect(() => {
-    if (!token || bootstrapping) {
+  const handleViewChange = useCallback((nextView: DashboardView) => {
+    setView(nextView)
+
+    if (!token) {
       return
     }
 
-    const activeToken = token
-    let cancelled = false
-
-    async function autoRefresh() {
-      if (document.hidden || cancelled) {
-        return
-      }
-
-      try {
-        if (view === 'overview' || view === 'games' || activeGame !== null) {
-          await refreshGames(activeToken)
-        }
-
-        if (view === 'overview' || view === 'store') {
-          await refreshShop(activeToken)
-        }
-
-        if (view === 'admin' && user?.is_admin && adminLoaded) {
-          await refreshAdmin(activeToken)
-        }
-      } catch {
-        // Background refresh should stay silent; explicit user actions still surface errors.
-      }
+    if (nextView === 'overview' || nextView === 'games') {
+      setGamesBusy(true)
+      setError(null)
+      void refreshGames(token)
+        .catch((requestError: unknown) =>
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Could not refresh games.',
+          ),
+        )
+        .finally(() => setGamesBusy(false))
     }
 
-    const intervalId = window.setInterval(() => {
-      void autoRefresh()
-    }, AUTO_REFRESH_INTERVAL_MS)
-
-    return () => {
-      cancelled = true
-      window.clearInterval(intervalId)
+    if (nextView === 'store') {
+      setShopBusy(true)
+      setError(null)
+      void refreshShop(token)
+        .catch((requestError: unknown) =>
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Could not refresh store.',
+          ),
+        )
+        .finally(() => setShopBusy(false))
     }
-  }, [activeGame, adminLoaded, bootstrapping, refreshAdmin, refreshGames, refreshShop, token, user?.is_admin, view])
+
+    if (nextView === 'admin' && user?.is_admin) {
+      setAdminBusy(true)
+      setError(null)
+      void refreshAdmin(token)
+        .then(() => setAdminLoaded(true))
+        .catch((requestError: unknown) =>
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : 'Could not refresh admin data.',
+          ),
+        )
+        .finally(() => setAdminBusy(false))
+    }
+  }, [refreshAdmin, refreshGames, refreshShop, token, user?.is_admin])
 
   function syncGame(game: GameSummary) {
     setActiveGame(game)
@@ -1219,7 +1229,7 @@ function App() {
           <DashboardPage
             currentUser={currentUser}
             view={view}
-            onViewChange={setView}
+            onViewChange={handleViewChange}
             onLogout={handleLogout}
             gameForm={gameForm}
             onGameFormChange={setGameForm}
