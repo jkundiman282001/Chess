@@ -3,11 +3,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import './GameRoom.css'
 import { fetchGame, resignGame, submitGameMove } from '../api'
-import type { BoardTheme, CosmeticItem, GameSummary, ShopState, User } from '../types'
+import type { BoardTheme, GameSummary, User } from '../types'
 
 type GameRoomProps = {
   currentUser: User
-  shop: ShopState | null
   token: string
   game: GameSummary
   onBack: () => void
@@ -56,7 +55,7 @@ type LegalTargetState = {
   isCapture: boolean
 }
 
-function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUserChange }: GameRoomProps) {
+function GameRoom({ currentUser, token, game, onBack, onGameChange, onUserChange }: GameRoomProps) {
   const [selectedSquare, setSelectedSquare] = useState<Square | null>(null)
   const [legalTargets, setLegalTargets] = useState<LegalTargetState[]>([])
   const [submittingMove, setSubmittingMove] = useState(false)
@@ -109,8 +108,8 @@ function GameRoom({ currentUser, shop, token, game, onBack, onGameChange, onUser
   const moveLog = previewState?.moveLog ?? (game.moves ?? []).map((move) => move.san)
   const equippedPieceSlug = currentUser.profile.equipped_piece_set?.slug ?? null
   const aiPieceBundle = useMemo(
-    () => pickAiPieceBundle(shop?.items ?? [], equippedPieceSlug, game.id),
-    [equippedPieceSlug, game.id, shop?.items],
+    () => pickAiPieceBundle(currentUser.profile.default_piece_sets, equippedPieceSlug),
+    [currentUser.profile.default_piece_sets, equippedPieceSlug],
   )
   const whitePieceSet = isCasualGame
     ? game.players.white?.equipped_piece_set ?? null
@@ -567,35 +566,19 @@ function bundleAppliesToColor(color: string, bundleSlug: string | null, bundleNa
   return true
 }
 
-function pickAiPieceBundle(items: CosmeticItem[], equippedSlug: string | null, gameId: string) {
-  const candidates = items.filter((item) => {
-    if (item.slug === equippedSlug) {
-      return false
-    }
-
-    if (item.category !== 'bundle' && item.category !== 'piece_set') {
+function pickAiPieceBundle(
+  defaultPieceSets: User['profile']['default_piece_sets'],
+  equippedSlug: string | null,
+) {
+  const candidates = [defaultPieceSets.black, defaultPieceSets.white].filter((item) => {
+    if (!item || item.slug === equippedSlug) {
       return false
     }
 
     return PIECE_CODES.some((pieceCode) => Boolean(item.assets?.[pieceCode]))
   })
 
-  if (candidates.length === 0) {
-    return null
-  }
-
-  const seed = hashString(gameId)
-  return candidates[seed % candidates.length]
-}
-
-function hashString(value: string) {
-  let hash = 0
-
-  for (let index = 0; index < value.length; index += 1) {
-    hash = (hash * 31 + value.charCodeAt(index)) >>> 0
-  }
-
-  return hash
+  return candidates[0] ?? defaultPieceSets.black ?? defaultPieceSets.white ?? null
 }
 
 const PIECE_CODES = ['pawn', 'rook', 'knight', 'bishop', 'queen', 'king'] as const

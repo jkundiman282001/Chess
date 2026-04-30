@@ -60,10 +60,17 @@ class AdminController extends Controller
 
     public function cosmetics(): JsonResponse
     {
-        $items = CosmeticItem::query()
+        $orderedIds = CosmeticItem::query()
+            ->select(['id'])
             ->orderBy('sort_order')
             ->orderBy('id')
-            ->get();
+            ->pluck('id');
+
+        $items = CosmeticItem::query()
+            ->whereIn('id', $orderedIds)
+            ->get()
+            ->sortBy(fn (CosmeticItem $item) => $orderedIds->search($item->id))
+            ->values();
 
         return response()->json([
             'items' => $items->map(fn (CosmeticItem $item) => $this->formatCosmetic($item))->all(),

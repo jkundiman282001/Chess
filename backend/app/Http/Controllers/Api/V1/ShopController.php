@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Models\CosmeticItem;
 use App\Services\ShopService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,11 +18,7 @@ class ShopController extends Controller
         $user = $request->user()->loadMissing('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic');
         $this->shopService->ensureStarterCosmetics($user);
 
-        $items = CosmeticItem::query()
-            ->where('is_active', true)
-            ->orderBy('sort_order')
-            ->orderBy('id')
-            ->get();
+        $items = $this->shopService->catalogItems();
 
         return response()->json($this->shopService->formatCatalog($user, $items));
     }

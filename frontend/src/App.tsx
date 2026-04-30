@@ -1168,7 +1168,6 @@ function App() {
           <GameRoom
             key={activeGame.id}
             currentUser={currentUser}
-            shop={shop}
             token={token ?? ''}
             game={activeGame}
             onBack={() => setActiveGame(null)}

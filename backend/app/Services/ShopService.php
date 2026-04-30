@@ -14,6 +14,19 @@ class ShopService
 
     private const STARTER_WHITE_BUNDLE_SLUG = 'classic2';
 
+    private const CATALOG_COLUMNS = [
+        'id',
+        'slug',
+        'name',
+        'category',
+        'rarity',
+        'description',
+        'price_soft_currency',
+        'sort_order',
+        'is_active',
+        'preview',
+    ];
+
     public function defaultPieceSets(): array
     {
         $bundles = CosmeticItem::query()
@@ -116,7 +129,7 @@ class ShopService
                 'message' => "{$item->name} purchased.",
                 ...$this->formatCatalog(
                     $lockedUser->fresh()->loadMissing('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic'),
-                    CosmeticItem::query()->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get()
+                    $this->catalogItems()
                 ),
             ];
         });
@@ -168,7 +181,7 @@ class ShopService
                 'message' => "{$item->name} equipped.",
                 ...$this->formatCatalog(
                     $lockedUser->fresh()->loadMissing('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic'),
-                    CosmeticItem::query()->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get()
+                    $this->catalogItems()
                 ),
             ];
         });
@@ -213,10 +226,20 @@ class ShopService
                 'message' => "{$item->name} unequipped.",
                 ...$this->formatCatalog(
                     $lockedUser->fresh()->loadMissing('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic'),
-                    CosmeticItem::query()->where('is_active', true)->orderBy('sort_order')->orderBy('id')->get()
+                    $this->catalogItems()
                 ),
             ];
         });
+    }
+
+    public function catalogItems(): Collection
+    {
+        return CosmeticItem::query()
+            ->select(self::CATALOG_COLUMNS)
+            ->where('is_active', true)
+            ->orderBy('sort_order')
+            ->orderBy('id')
+            ->get();
     }
 
     public function formatCatalog(User $user, Collection $items): array
@@ -248,7 +271,7 @@ class ShopService
                     'description' => $item->description,
                     'price_soft_currency' => $item->price_soft_currency,
                     'preview' => $item->preview,
-                    'assets' => $item->assets,
+                    'assets' => null,
                     'owned' => $owned,
                     'equipped' => $equipped,
                 ];
