@@ -222,6 +222,7 @@ function DashboardPage({
   const [storeSort, setStoreSort] = useState<'rarity' | 'price_asc' | 'price_desc' | 'name'>('rarity')
   const [storeQuery, setStoreQuery] = useState('')
   const [selectedBundle, setSelectedBundle] = useState<ShopState['items'][number] | null>(null)
+  const [selectedBundleLoading, setSelectedBundleLoading] = useState(false)
   const [selectedBundlePiece, setSelectedBundlePiece] = useState<{ code: string; src: string } | null>(null)
   const [userDrafts, setUserDrafts] = useState<Record<number, Partial<AdminUserDraft>>>({})
   const [cosmeticDrafts, setCosmeticDrafts] = useState<Record<number, Partial<CosmeticEditor>>>({})
@@ -241,6 +242,18 @@ function DashboardPage({
     },
     assets: {},
   })
+
+  function openBundle(item: ShopState['items'][number]) {
+    setSelectedBundle(item)
+    setSelectedBundleLoading(true)
+    void onViewBundle(item.slug).then((fullItem) => {
+      if (fullItem) {
+        setSelectedBundle(fullItem)
+      }
+
+      setSelectedBundleLoading(false)
+    })
+  }
   const normalizedStoreQuery = storeQuery.trim().toLowerCase()
   const featuredBundle = pickFeaturedBundle(sortedShopItems)
   const filterStoreItems = (items: ShopState['items']) =>
@@ -1097,7 +1110,7 @@ function DashboardPage({
         {view === 'store' && (
           <div className="dp-store">
             {selectedBundle ? (
-              <div className="dp-bundle-modal" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) setSelectedBundle(null) }}>
+              <div className="dp-bundle-modal" role="dialog" aria-modal="true" onClick={(e) => { if (e.target === e.currentTarget) { setSelectedBundle(null); setSelectedBundleLoading(false) } }}>
                 <div className="dp-bundle-sheet">
 
                   {/* ── Left: Visual panel ── */}
@@ -1127,7 +1140,7 @@ function DashboardPage({
                       </div>
                       <button
                         className="dp-bundle-sheet-close"
-                        onClick={() => setSelectedBundle(null)}
+                        onClick={() => { setSelectedBundle(null); setSelectedBundleLoading(false) }}
                         type="button"
                         aria-label="Close"
                       >
@@ -1169,6 +1182,9 @@ function DashboardPage({
                           </div>
                         ))}
                       </div>
+                      {selectedBundleLoading ? (
+                        <span className="dp-inline-muted">Loading piece previews...</span>
+                      ) : null}
                     </div>
 
                     {/* Ownership info strip */}
@@ -1185,7 +1201,7 @@ function DashboardPage({
 
                     {/* Actions footer */}
                     <div className="dp-bundle-sheet-footer">
-                      <button className="dp-btn-secondary" onClick={() => setSelectedBundle(null)} type="button">
+                      <button className="dp-btn-secondary" onClick={() => { setSelectedBundle(null); setSelectedBundleLoading(false) }} type="button">
                         Back to Store
                       </button>
                       <div className="dp-bundle-sheet-cta">
@@ -1193,19 +1209,19 @@ function DashboardPage({
                           STARTER_BUNDLE_SLUGS.has(selectedBundle.slug) ? (
                             <span className="dp-shop-owned">Starter Set</span>
                           ) : (
-                            <button className="dp-btn-secondary" disabled={shopBusy} onClick={() => { onUnequipCosmetic(selectedBundle.slug); setSelectedBundle(null) }} type="button">
+                            <button className="dp-btn-secondary" disabled={shopBusy} onClick={() => { onUnequipCosmetic(selectedBundle.slug); setSelectedBundle(null); setSelectedBundleLoading(false) }} type="button">
                               Unequip
                             </button>
                           )
                         ) : selectedBundle.owned ? (
-                          <button className="dp-btn-primary" disabled={shopBusy} onClick={() => { onEquipCosmetic(selectedBundle.slug); setSelectedBundle(null) }} type="button">
+                          <button className="dp-btn-primary" disabled={shopBusy} onClick={() => { onEquipCosmetic(selectedBundle.slug); setSelectedBundle(null); setSelectedBundleLoading(false) }} type="button">
                             Equip Bundle
                           </button>
                         ) : (
                           <button
                             className="dp-btn-primary"
                             disabled={shopBusy || (shop?.balance ?? 0) < selectedBundle.price_soft_currency}
-                            onClick={() => { onPurchaseCosmetic(selectedBundle.slug); setSelectedBundle(null) }}
+                            onClick={() => { onPurchaseCosmetic(selectedBundle.slug); setSelectedBundle(null); setSelectedBundleLoading(false) }}
                             type="button"
                           >
                             Buy · {selectedBundle.price_soft_currency} coins
@@ -1317,7 +1333,7 @@ function DashboardPage({
                           )}
                         </div>
                         <div className="dp-store-featured-card-actions">
-                          <button className="dp-btn-secondary" onClick={() => { void onViewBundle(featuredBundle.slug).then((item) => item && setSelectedBundle(item)) }} type="button">
+                          <button className="dp-btn-secondary" onClick={() => openBundle(featuredBundle)} type="button">
                             View
                           </button>
                           {featuredBundle.equipped ? (
@@ -1399,13 +1415,15 @@ function DashboardPage({
                       onEquipCosmetic={onEquipCosmetic}
                       onPurchaseCosmetic={onPurchaseCosmetic}
                       onUnequipCosmetic={onUnequipCosmetic}
-                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                      onViewBundle={(slug) => {
+                        const item = visibleStarterBundles.find((bundle) => bundle.slug === slug)
+
                         if (item) {
-                          setSelectedBundle(item)
+                          openBundle(item)
                         }
 
-                        return item
-                      })}
+                        return Promise.resolve(item ?? null)
+                      }}
                       shopBalance={shop.balance}
                       shopBusy={shopBusy}
                       title="Starter Bundles"
@@ -1416,13 +1434,15 @@ function DashboardPage({
                       onEquipCosmetic={onEquipCosmetic}
                       onPurchaseCosmetic={onPurchaseCosmetic}
                       onUnequipCosmetic={onUnequipCosmetic}
-                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                      onViewBundle={(slug) => {
+                        const item = visibleEquippedBundles.find((bundle) => bundle.slug === slug)
+
                         if (item) {
-                          setSelectedBundle(item)
+                          openBundle(item)
                         }
 
-                        return item
-                      })}
+                        return Promise.resolve(item ?? null)
+                      }}
                       shopBalance={shop.balance}
                       shopBusy={shopBusy}
                       title="Equipped"
@@ -1433,13 +1453,15 @@ function DashboardPage({
                       onEquipCosmetic={onEquipCosmetic}
                       onPurchaseCosmetic={onPurchaseCosmetic}
                       onUnequipCosmetic={onUnequipCosmetic}
-                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                      onViewBundle={(slug) => {
+                        const item = visibleOwnedBundles.find((bundle) => bundle.slug === slug)
+
                         if (item) {
-                          setSelectedBundle(item)
+                          openBundle(item)
                         }
 
-                        return item
-                      })}
+                        return Promise.resolve(item ?? null)
+                      }}
                       shopBalance={shop.balance}
                       shopBusy={shopBusy}
                       title="Owned"
@@ -1450,13 +1472,15 @@ function DashboardPage({
                       onEquipCosmetic={onEquipCosmetic}
                       onPurchaseCosmetic={onPurchaseCosmetic}
                       onUnequipCosmetic={onUnequipCosmetic}
-                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                      onViewBundle={(slug) => {
+                        const item = visibleAvailableBundles.find((bundle) => bundle.slug === slug)
+
                         if (item) {
-                          setSelectedBundle(item)
+                          openBundle(item)
                         }
 
-                        return item
-                      })}
+                        return Promise.resolve(item ?? null)
+                      }}
                       shopBalance={shop.balance}
                       shopBusy={shopBusy}
                       title="Available To Buy"

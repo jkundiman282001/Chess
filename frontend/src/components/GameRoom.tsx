@@ -121,8 +121,7 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange, onUserChange
     : playerColor === 'b'
       ? currentUser.profile.equipped_piece_set
       : aiPieceBundle
-  const resignationModalVisible =
-    game.status === 'finished' && game.termination_reason === 'resignation'
+  const resultModalVisible = game.status === 'finished'
   const statusMessage = useMemo(() => {
     if (game.status === 'finished') {
       return buildFinishedMessage(game, currentUser)
@@ -340,12 +339,12 @@ function GameRoom({ currentUser, token, game, onBack, onGameChange, onUserChange
           </div>
         ) : null}
 
-        {resignationModalVisible ? (
+        {resultModalVisible ? (
           <div className="gr-thinking-modal" role="dialog" aria-modal="true" aria-labelledby="resign-title">
             <div className="gr-thinking-card gr-result-card">
               <p className="gr-label">Game Result</p>
               <strong id="resign-title">
-                {game.players.winner?.id === currentUser.id ? 'Opponent Resigned' : 'You Resigned'}
+                {buildFinishedTitle(game, currentUser)}
               </strong>
               <p className="gr-result-copy">{buildFinishedMessage(game, currentUser)}</p>
               {game.reward_summary ? (
@@ -597,6 +596,22 @@ function buildBoardEndMessage(engine: Chess) {
   }
 
   return 'Game over.'
+}
+
+function buildFinishedTitle(game: GameSummary, currentUser: User) {
+  if (game.termination_reason === 'resignation') {
+    return game.players.winner?.id === currentUser.id ? 'Opponent Resigned' : 'You Resigned'
+  }
+
+  if (game.players.winner?.id === currentUser.id) {
+    return 'Victory'
+  }
+
+  if (game.result === 'draw') {
+    return 'Draw'
+  }
+
+  return 'Defeat'
 }
 
 function buildFinishedMessage(game: GameSummary, currentUser: User) {
