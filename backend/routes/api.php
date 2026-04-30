@@ -31,6 +31,7 @@ Route::prefix('v1')->group(function (): void {
         Route::get('/profile', [ProfileController::class, 'show']);
         Route::patch('/profile', [ProfileController::class, 'update']);
         Route::get('/shop', [ShopController::class, 'index']);
+        Route::get('/shop/{slug}', [ShopController::class, 'show']);
         Route::post('/shop/purchase', [ShopController::class, 'purchase']);
         Route::post('/shop/equip', [ShopController::class, 'equip']);
         Route::post('/shop/unequip', [ShopController::class, 'unequip']);

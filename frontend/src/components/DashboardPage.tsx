@@ -44,15 +44,14 @@ type DashboardPageProps = {
   onApplyBoardTheme: (theme: BoardTheme) => void
   profileBusy: boolean
   games: GameSummary[]
-  openCasualGames: GameSummary[]
   onRefreshGames: () => void
   onOpenGame: (gameId: string) => void
-  onJoinCasualGame: (gameId: string) => void
   onHideGame: (gameId: string) => void
   onUnhideGame: (gameId: string) => void
   shop: ShopState | null
   shopBusy: boolean
   onRefreshShop: () => void
+  onViewBundle: (slug: string) => Promise<ShopState['items'][number] | null>
   onPurchaseCosmetic: (slug: string) => void
   onEquipCosmetic: (slug: string) => void
   onUnequipCosmetic: (slug: string) => void
@@ -188,15 +187,14 @@ function DashboardPage({
   onApplyBoardTheme,
   profileBusy,
   games,
-  openCasualGames,
   onRefreshGames,
   onOpenGame,
-  onJoinCasualGame,
   onHideGame,
   onUnhideGame,
   shop,
   shopBusy,
   onRefreshShop,
+  onViewBundle,
   onPurchaseCosmetic,
   onEquipCosmetic,
   onUnequipCosmetic,
@@ -262,11 +260,6 @@ function DashboardPage({
   const visibleEquippedBundles = storeFilter === 'all' || storeFilter === 'equipped' ? filterStoreItems(equippedBundles) : []
   const visibleOwnedBundles = storeFilter === 'all' || storeFilter === 'owned' ? filterStoreItems(ownedBundles) : []
   const visibleAvailableBundles = storeFilter === 'all' || storeFilter === 'available' ? filterStoreItems(availableBundles) : []
-  const visibleStoreItemCount =
-    visibleStarterBundles.length +
-    visibleEquippedBundles.length +
-    visibleOwnedBundles.length +
-    visibleAvailableBundles.length
   const profileBoardTheme: BoardTheme = {
     light: profileForm.board_light_color,
     dark: profileForm.board_dark_color,
@@ -405,7 +398,7 @@ function DashboardPage({
                           onGameFormChange((c) => ({ ...c, mode: e.target.value as CreateGameForm['mode'] }))
                         }
                       >
-                        <option value="casual">Casual</option>
+                        <option disabled value="casual">Casual (future)</option>
                         <option disabled value="ranked">Ranked (future)</option>
                         <option value="ai">Versus AI</option>
                       </select>
@@ -475,8 +468,8 @@ function DashboardPage({
                   </div>
 
                   <p className="dp-form-note">
-                    Casual mode creates an open lobby. Another account can join from the Games tab.
-                    Ranked remains locked until matchmaking and anti-abuse rules are ready.
+                    AI mode is the currently playable path. Online multiplayer stays disabled until
+                    server-side move validation exists.
                   </p>
 
                   <button className="dp-btn-primary dp-game-submit" disabled={gamesBusy} type="submit">
@@ -1014,39 +1007,6 @@ function DashboardPage({
               </button>
             </div>
 
-            <section className="dp-casual-lobby">
-              <div className="dp-games-header">
-                <div>
-                  <h3 className="dp-subsection-title">Open Casual Lobbies</h3>
-                  <p className="dp-section-sub">{openCasualGames.length} waiting match{openCasualGames.length !== 1 ? 'es' : ''}</p>
-                </div>
-              </div>
-
-              {openCasualGames.length === 0 ? (
-                <div className="dp-empty">
-                  <p>No open casual lobbies right now. Create one from Overview.</p>
-                </div>
-              ) : (
-                <div className="dp-lobby-grid">
-                  {openCasualGames.map((game) => (
-                    <article className="dp-lobby-card" key={game.id}>
-                      <div>
-                        <span className="dp-game-mode">CASUAL</span>
-                        <h4>
-                          {game.players.white?.username ?? 'Open'} <em>vs</em>{' '}
-                          {game.players.black?.username ?? 'Open'}
-                        </h4>
-                        <p>{game.time_control_name} · waiting for opponent</p>
-                      </div>
-                      <button className="dp-btn-primary" disabled={gamesBusy} onClick={() => onJoinCasualGame(game.id)} type="button">
-                        Join
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-
             {visibleGames.length === 0 ? (
               <div className="dp-empty dp-empty--lg">
                 <span className="dp-empty-glyph" aria-hidden="true">♟</span>
@@ -1078,9 +1038,9 @@ function DashboardPage({
                     </span>
                     <span className="dp-game-id">{game.id}</span>
                     <div className="dp-inline-group">
-                      {game.mode === 'ai' || game.mode === 'casual' ? (
+                      {game.mode === 'ai' ? (
                         <button className="dp-inline-action" onClick={() => onOpenGame(game.id)} type="button">
-                          {game.status === 'waiting' ? 'Open' : 'Play'}
+                          Play
                         </button>
                       ) : (
                         <span className="dp-inline-muted">Future</span>
@@ -1271,210 +1231,239 @@ function DashboardPage({
               </div>
             ) : null}
 
+            {/* ── Store page header ── */}
+            <div className="dp-store-page-header">
+              <div className="dp-store-page-title">
+                <span className="dp-store-page-eyebrow">Cosmetic Store</span>
+                <p className="dp-store-page-sub">Visual-only boards &amp; piece sets</p>
+              </div>
+              <button className="dp-btn-secondary" onClick={onRefreshShop} type="button">
+                ↺ Refresh
+              </button>
+            </div>
+
             {!shop ? (
-              <>
-                <div className="dp-store-hero">
-                  <div className="dp-store-hero-copy">
-                    <span className="dp-store-eyebrow">Cosmetic Store</span>
-                    <h2>Build your board identity.</h2>
-                    <p>Browse visual-only bundles for your chess pieces and profile style.</p>
-                  </div>
-                  <button className="dp-btn-secondary" onClick={onRefreshShop} type="button">
-                    Refresh
-                  </button>
-                </div>
-                <div className="dp-empty dp-empty--lg">
-                  <span className="dp-empty-glyph" aria-hidden="true">♜</span>
-                  <p>No store data available yet.</p>
-                </div>
-              </>
+              <div className="dp-empty dp-empty--lg">
+                <span className="dp-empty-glyph" aria-hidden="true">♜</span>
+                <p>No store data available yet.</p>
+              </div>
             ) : (
-              <>
-                <div className="dp-store-hero">
-                  <div className="dp-store-hero-copy">
-                    <span className="dp-store-eyebrow">Cosmetic Store</span>
-                    <h2>Build your board identity.</h2>
-                    <p>Visual-only bundles for chess pieces, profile style, and collection progression.</p>
-                  </div>
+              <div className="dp-store-body">
+
+                {/* ── Left sidebar: wallet + loadout ── */}
+                <aside className="dp-store-sidebar">
+
                   <div className="dp-store-wallet">
                     <span className="dp-field-label">Coin Balance</span>
-                    <strong>{shop.balance}</strong>
-                    <button className="dp-btn-secondary" onClick={onRefreshShop} type="button">
-                      Refresh
-                    </button>
+                    <strong className="dp-store-wallet-amount">{shop.balance.toLocaleString()}</strong>
+                    <span className="dp-store-wallet-unit">coins</span>
                   </div>
-                </div>
 
-                <div className="dp-store-status-grid">
-                  <div className="dp-store-status-card">
-                    <span className="dp-field-label">Equipped Pieces</span>
-                    <strong>{shop.equipped.piece_set?.name ?? 'None'}</strong>
-                  </div>
-                  <div className="dp-store-status-card">
-                    <span className="dp-field-label">Starter Sets</span>
-                    <strong>{starterBundles.length}</strong>
-                  </div>
-                  <div className="dp-store-status-card">
-                    <span className="dp-field-label">Owned Extras</span>
-                    <strong>{equippedBundles.length + ownedBundles.length}</strong>
-                  </div>
-                  <div className="dp-store-status-card">
-                    <span className="dp-field-label">Available</span>
-                    <strong>{availableBundles.length}</strong>
-                  </div>
-                </div>
-
-                <div className="dp-store-main">
-                  <aside className="dp-store-sidebar">
-                    <div className="dp-store-sidebar-block">
-                      <span className="dp-field-label">Browse</span>
-                      <div className="dp-store-filters" role="tablist" aria-label="Store filters">
-                        {[
-                          { id: 'all', label: 'All' },
-                          { id: 'starter', label: 'Starter' },
-                          { id: 'equipped', label: 'Equipped' },
-                          { id: 'owned', label: 'Owned' },
-                          { id: 'available', label: 'Available' },
-                        ].map((filter) => (
-                          <button
-                            key={filter.id}
-                            className={`dp-store-filter${storeFilter === filter.id ? ' is-active' : ''}`}
-                            onClick={() => setStoreFilter(filter.id as typeof storeFilter)}
-                            type="button"
-                          >
-                            {filter.label}
-                          </button>
-                        ))}
+                  <div className="dp-store-loadout">
+                    <span className="dp-field-label">Active Loadout</span>
+                    <div className="dp-store-loadout-row">
+                      <span className="dp-store-loadout-icon" aria-hidden="true">◫</span>
+                      <div>
+                        <span className="dp-store-loadout-type">Board</span>
+                        <strong className="dp-store-loadout-name">{shop.equipped.board?.name ?? '—'}</strong>
                       </div>
                     </div>
-                    <label className="dp-store-sidebar-block">
-                      <span className="dp-field-label">Search Bundles</span>
+                    <div className="dp-store-loadout-row">
+                      <span className="dp-store-loadout-icon" aria-hidden="true">♟</span>
+                      <div>
+                        <span className="dp-store-loadout-type">Pieces</span>
+                        <strong className="dp-store-loadout-name">{shop.equipped.piece_set?.name ?? '—'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="dp-store-stats-panel">
+                    <div className="dp-store-stat">
+                      <strong>{starterBundles.length + equippedBundles.length + ownedBundles.length}</strong>
+                      <span>Owned</span>
+                    </div>
+                    <div className="dp-store-stat-divider" />
+                    <div className="dp-store-stat">
+                      <strong>{availableBundles.length}</strong>
+                      <span>Available</span>
+                    </div>
+                    <div className="dp-store-stat-divider" />
+                    <div className="dp-store-stat">
+                      <strong>{sortedShopItems.length}</strong>
+                      <span>Total</span>
+                    </div>
+                  </div>
+
+                  {/* Featured bundle in sidebar */}
+                  {featuredBundle ? (
+                    <div className="dp-store-featured-card">
+                      <div
+                        className="dp-store-featured-card-visual"
+                        style={getStorePreviewStyle(featuredBundle.preview)}
+                      >
+                        <div className="dp-store-featured-card-overlay">
+                          <span className="dp-store-featured-eyebrow">Featured</span>
+                          <h4 className="dp-store-featured-card-name">{featuredBundle.name}</h4>
+                          <span className={`dp-shop-rarity dp-shop-rarity--${featuredBundle.rarity}`}>{featuredBundle.rarity}</span>
+                        </div>
+                      </div>
+                      <div className="dp-store-featured-card-body">
+                        <p>{featuredBundle.description ?? 'Highlighted cosmetic bundle.'}</p>
+                        <div className="dp-store-featured-card-price">
+                          {featuredBundle.owned ? (
+                            <span className="dp-shop-owned">Owned</span>
+                          ) : (
+                            <strong>{featuredBundle.price_soft_currency.toLocaleString()} coins</strong>
+                          )}
+                        </div>
+                        <div className="dp-store-featured-card-actions">
+                          <button className="dp-btn-secondary" onClick={() => { void onViewBundle(featuredBundle.slug).then((item) => item && setSelectedBundle(item)) }} type="button">
+                            View
+                          </button>
+                          {featuredBundle.equipped ? (
+                            STARTER_BUNDLE_SLUGS.has(featuredBundle.slug) ? (
+                              <span className="dp-shop-owned">Starter</span>
+                            ) : (
+                              <button className="dp-btn-secondary" disabled={shopBusy} onClick={() => onUnequipCosmetic(featuredBundle.slug)} type="button">
+                                Unequip
+                              </button>
+                            )
+                          ) : featuredBundle.owned ? (
+                            <button className="dp-btn-primary" disabled={shopBusy} onClick={() => onEquipCosmetic(featuredBundle.slug)} type="button">
+                              Equip
+                            </button>
+                          ) : (
+                            <button
+                              className="dp-btn-primary"
+                              disabled={shopBusy || shop.balance < featuredBundle.price_soft_currency}
+                              onClick={() => onPurchaseCosmetic(featuredBundle.slug)}
+                              type="button"
+                            >
+                              Buy
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </aside>
+
+                {/* ── Right: catalog ── */}
+                <div className="dp-store-main">
+
+                  {/* Toolbar */}
+                  <div className="dp-store-toolbar-v2">
+                    <div className="dp-store-filters" role="tablist" aria-label="Store filters">
+                      {[
+                        { id: 'all', label: 'All' },
+                        { id: 'starter', label: 'Starter' },
+                        { id: 'equipped', label: 'Equipped' },
+                        { id: 'owned', label: 'Owned' },
+                        { id: 'available', label: 'Available' },
+                      ].map((filter) => (
+                        <button
+                          key={filter.id}
+                          className={`dp-store-filter${storeFilter === filter.id ? ' is-active' : ''}`}
+                          onClick={() => setStoreFilter(filter.id as typeof storeFilter)}
+                          type="button"
+                        >
+                          {filter.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="dp-store-toolbar-controls">
                       <input
-                        className="dp-input"
+                        className="dp-input dp-store-search-input"
                         onChange={(event) => setStoreQuery(event.target.value)}
-                        placeholder="Name, slug, rarity..."
+                        placeholder="Search bundles…"
                         value={storeQuery}
                       />
-                    </label>
-                    <label className="dp-store-sidebar-block">
-                      <span className="dp-field-label">Sort By</span>
                       <select
-                        className="dp-select"
+                        className="dp-select dp-store-sort-select"
                         onChange={(event) => setStoreSort(event.target.value as typeof storeSort)}
                         value={storeSort}
                       >
                         <option value="rarity">Rarity</option>
-                        <option value="price_asc">Price: Low to High</option>
-                        <option value="price_desc">Price: High to Low</option>
+                        <option value="price_asc">Price ↑</option>
+                        <option value="price_desc">Price ↓</option>
                         <option value="name">Name</option>
                       </select>
-                    </label>
-                    <div className="dp-store-sidebar-block dp-store-sidebar-note">
-                      <span className="dp-field-label">Showing</span>
-                      <strong>{visibleStoreItemCount}</strong>
-                      <p>Bundles are cosmetic only and do not affect gameplay fairness.</p>
-                    </div>
-                  </aside>
-
-                  <div className="dp-store-content">
-                    {featuredBundle ? (
-                      <div className="dp-store-featured">
-                        <div
-                          className="dp-store-featured-visual"
-                          style={getStorePreviewStyle(featuredBundle.preview)}
-                        >
-                          <span>Featured Bundle</span>
-                        </div>
-                        <div className="dp-store-featured-copy">
-                          <div className="dp-shop-head">
-                            <h3>{featuredBundle.name}</h3>
-                            <span className={`dp-shop-rarity dp-shop-rarity--${featuredBundle.rarity}`}>{featuredBundle.rarity}</span>
-                          </div>
-                          <p>{featuredBundle.description ?? 'Highlighted cosmetic bundle for your collection.'}</p>
-                          <div className="dp-shop-meta">
-                            <span>{featuredBundle.owned ? 'Already owned' : 'Featured release'}</span>
-                            <strong>{featuredBundle.price_soft_currency} coins</strong>
-                          </div>
-                          <div className="dp-store-featured-actions">
-                            <button className="dp-btn-secondary" onClick={() => setSelectedBundle(featuredBundle)} type="button">
-                              View Bundle
-                            </button>
-                            {featuredBundle.equipped ? (
-                              STARTER_BUNDLE_SLUGS.has(featuredBundle.slug) ? (
-                                <span className="dp-shop-owned">Starter Set</span>
-                              ) : (
-                                <button className="dp-btn-secondary" disabled={shopBusy} onClick={() => onUnequipCosmetic(featuredBundle.slug)} type="button">
-                                  Unequip
-                                </button>
-                              )
-                            ) : featuredBundle.owned ? (
-                              <button className="dp-btn-primary" disabled={shopBusy} onClick={() => onEquipCosmetic(featuredBundle.slug)} type="button">
-                                Equip
-                              </button>
-                            ) : (
-                              <button
-                                className="dp-btn-primary"
-                                disabled={shopBusy || shop.balance < featuredBundle.price_soft_currency}
-                                onClick={() => onPurchaseCosmetic(featuredBundle.slug)}
-                                type="button"
-                              >
-                                Buy Bundle
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="dp-store-catalog">
-                      <StoreSection
-                        emptyCopy="No starter bundles configured."
-                        items={visibleStarterBundles}
-                        onEquipCosmetic={onEquipCosmetic}
-                        onPurchaseCosmetic={onPurchaseCosmetic}
-                        onUnequipCosmetic={onUnequipCosmetic}
-                        onViewBundle={setSelectedBundle}
-                        shopBalance={shop.balance}
-                        shopBusy={shopBusy}
-                        title="Starter Bundles"
-                      />
-                      <StoreSection
-                        emptyCopy="No equipped bundles yet."
-                        items={visibleEquippedBundles}
-                        onEquipCosmetic={onEquipCosmetic}
-                        onPurchaseCosmetic={onPurchaseCosmetic}
-                        onUnequipCosmetic={onUnequipCosmetic}
-                        onViewBundle={setSelectedBundle}
-                        shopBalance={shop.balance}
-                        shopBusy={shopBusy}
-                        title="Equipped"
-                      />
-                      <StoreSection
-                        emptyCopy="No extra owned bundles yet."
-                        items={visibleOwnedBundles}
-                        onEquipCosmetic={onEquipCosmetic}
-                        onPurchaseCosmetic={onPurchaseCosmetic}
-                        onUnequipCosmetic={onUnequipCosmetic}
-                        onViewBundle={setSelectedBundle}
-                        shopBalance={shop.balance}
-                        shopBusy={shopBusy}
-                        title="Owned"
-                      />
-                      <StoreSection
-                        emptyCopy="No bundles available for purchase."
-                        items={visibleAvailableBundles}
-                        onEquipCosmetic={onEquipCosmetic}
-                        onPurchaseCosmetic={onPurchaseCosmetic}
-                        onUnequipCosmetic={onUnequipCosmetic}
-                        onViewBundle={setSelectedBundle}
-                        shopBalance={shop.balance}
-                        shopBusy={shopBusy}
-                        title="Available To Buy"
-                      />
                     </div>
                   </div>
+
+                  {/* Catalog sections */}
+                  <div className="dp-store-catalog">
+                    <StoreSection
+                      emptyCopy="No starter bundles configured."
+                      items={visibleStarterBundles}
+                      onEquipCosmetic={onEquipCosmetic}
+                      onPurchaseCosmetic={onPurchaseCosmetic}
+                      onUnequipCosmetic={onUnequipCosmetic}
+                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                        if (item) {
+                          setSelectedBundle(item)
+                        }
+
+                        return item
+                      })}
+                      shopBalance={shop.balance}
+                      shopBusy={shopBusy}
+                      title="Starter Bundles"
+                    />
+                    <StoreSection
+                      emptyCopy="No equipped bundles yet."
+                      items={visibleEquippedBundles}
+                      onEquipCosmetic={onEquipCosmetic}
+                      onPurchaseCosmetic={onPurchaseCosmetic}
+                      onUnequipCosmetic={onUnequipCosmetic}
+                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                        if (item) {
+                          setSelectedBundle(item)
+                        }
+
+                        return item
+                      })}
+                      shopBalance={shop.balance}
+                      shopBusy={shopBusy}
+                      title="Equipped"
+                    />
+                    <StoreSection
+                      emptyCopy="No extra owned bundles yet."
+                      items={visibleOwnedBundles}
+                      onEquipCosmetic={onEquipCosmetic}
+                      onPurchaseCosmetic={onPurchaseCosmetic}
+                      onUnequipCosmetic={onUnequipCosmetic}
+                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                        if (item) {
+                          setSelectedBundle(item)
+                        }
+
+                        return item
+                      })}
+                      shopBalance={shop.balance}
+                      shopBusy={shopBusy}
+                      title="Owned"
+                    />
+                    <StoreSection
+                      emptyCopy="No bundles available for purchase."
+                      items={visibleAvailableBundles}
+                      onEquipCosmetic={onEquipCosmetic}
+                      onPurchaseCosmetic={onPurchaseCosmetic}
+                      onUnequipCosmetic={onUnequipCosmetic}
+                      onViewBundle={(slug) => onViewBundle(slug).then((item) => {
+                        if (item) {
+                          setSelectedBundle(item)
+                        }
+
+                        return item
+                      })}
+                      shopBalance={shop.balance}
+                      shopBusy={shopBusy}
+                      title="Available To Buy"
+                    />
+                  </div>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}
@@ -1839,7 +1828,7 @@ type StoreSectionProps = {
   emptyCopy: string
   shopBusy: boolean
   shopBalance: number
-  onViewBundle: (item: ShopState['items'][number]) => void
+  onViewBundle: (slug: string) => Promise<ShopState['items'][number] | null>
   onPurchaseCosmetic: (slug: string) => void
   onEquipCosmetic: (slug: string) => void
   onUnequipCosmetic: (slug: string) => void
@@ -1860,38 +1849,47 @@ function StoreSection({
     <section className="dp-store-section">
       <div className="dp-store-section-head">
         <h3>{title}</h3>
-        <span>{items.length}</span>
+        {items.length > 0 && <span>{items.length}</span>}
       </div>
       {items.length === 0 ? (
         <div className="dp-store-section-empty">{emptyCopy}</div>
       ) : (
-        <div className="dp-shop-grid">
+        <div className="dp-catalog-list">
           {items.map((item) => (
-            <article className="dp-shop-card" key={item.slug}>
+            <article className="dp-catalog-row" key={item.slug}>
+              {/* Color swatch thumbnail */}
               <div
-                className="dp-shop-preview"
+                className="dp-catalog-swatch"
                 style={getStorePreviewStyle(item.preview)}
-              >
-                <span>{item.category === 'board' ? 'Board' : 'Pieces'}</span>
-              </div>
-              <div className="dp-shop-copy">
-                <div className="dp-shop-head">
-                  <h3>{item.name}</h3>
+              />
+
+              {/* Main info */}
+              <div className="dp-catalog-info">
+                <div className="dp-catalog-name-row">
+                  <span className="dp-catalog-name">{item.name}</span>
                   <span className={`dp-shop-rarity dp-shop-rarity--${item.rarity}`}>{item.rarity}</span>
                 </div>
-                <p>{item.description ?? 'Visual-only cosmetic.'}</p>
-                <div className="dp-shop-meta">
-                  <span>{item.category === 'bundle' ? 'Bundle' : item.category === 'board' ? 'Board Cosmetic' : 'Piece Set'}</span>
-                  <strong>{item.price_soft_currency} coins</strong>
-                </div>
+                <span className="dp-catalog-desc">{item.description ?? 'Visual-only cosmetic.'}</span>
               </div>
-              <div className="dp-shop-actions">
-                <button className="dp-btn-secondary" onClick={() => onViewBundle(item)} type="button">
+
+              {/* Category tag */}
+              <span className="dp-catalog-category">
+                {item.category === 'bundle' ? 'Bundle' : item.category === 'board' ? 'Board' : 'Pieces'}
+              </span>
+
+              {/* Price */}
+              <span className="dp-catalog-price">
+                {item.price_soft_currency > 0 ? `${item.price_soft_currency.toLocaleString()}` : 'Free'}
+              </span>
+
+              {/* Actions */}
+              <div className="dp-catalog-actions">
+                <button className="dp-catalog-view-btn" onClick={() => { void onViewBundle(item.slug) }} type="button">
                   View
                 </button>
                 {item.equipped ? (
                   STARTER_BUNDLE_SLUGS.has(item.slug) ? (
-                    <span className="dp-shop-owned">Starter Set</span>
+                    <span className="dp-catalog-status dp-catalog-status--starter">Starter</span>
                   ) : (
                     <button className="dp-btn-secondary" disabled={shopBusy} onClick={() => onUnequipCosmetic(item.slug)} type="button">
                       Unequip

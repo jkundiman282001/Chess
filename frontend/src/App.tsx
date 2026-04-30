@@ -20,13 +20,13 @@ import {
   fetchOpenCasualGames,
   fetchProfile,
   fetchShop,
+  fetchShopItem,
   getApiUrl,
   getStoredToken,
   unequipCosmetic,
   login,
   logout,
   hideGame,
-  joinCasualGame,
   purchaseCosmetic,
   register,
   setStoredToken,
@@ -76,7 +76,7 @@ function App() {
   const [token, setToken] = useState<string | null>(() => getStoredToken())
   const [user, setUser] = useState<User | null>(null)
   const [games, setGames] = useState<GameSummary[]>([])
-  const [openCasualGames, setOpenCasualGames] = useState<GameSummary[]>([])
+  const [, setOpenCasualGames] = useState<GameSummary[]>([])
   const [activeGame, setActiveGame] = useState<GameSummary | null>(null)
   const [shop, setShop] = useState<ShopState | null>(null)
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([])
@@ -1241,7 +1241,6 @@ function App() {
             onApplyBoardTheme={handleApplyBoardTheme}
             profileBusy={profileBusy}
             games={games}
-            openCasualGames={openCasualGames}
             shop={shop}
             shopBusy={shopBusy}
             adminUsers={adminUsers}
@@ -1280,27 +1279,6 @@ function App() {
                     requestError instanceof Error
                       ? requestError.message
                       : 'Could not refresh games.',
-                  ),
-                )
-                .finally(() => setGamesBusy(false))
-            }}
-            onJoinCasualGame={(gameId) => {
-              if (!token) {
-                return
-              }
-
-              setGamesBusy(true)
-              setError(null)
-              void joinCasualGame(token, gameId)
-                .then((response) => {
-                  syncGame(response.game)
-                  setMessage('Casual match joined.')
-                })
-                .catch((requestError: unknown) =>
-                  setError(
-                    requestError instanceof Error
-                      ? requestError.message
-                      : 'Could not join casual match.',
                   ),
                 )
                 .finally(() => setGamesBusy(false))
@@ -1353,6 +1331,39 @@ function App() {
             }}
             onRefreshShop={() => {
               void handleRefreshShop()
+            }}
+            onViewBundle={async (slug) => {
+              if (!token) {
+                return null
+              }
+
+              setShopBusy(true)
+              setError(null)
+
+              try {
+                const response = await fetchShopItem(token, slug)
+                setShop((currentShop) =>
+                  currentShop
+                    ? {
+                        ...currentShop,
+                        items: currentShop.items.map((item) =>
+                          item.slug === slug ? response.item : item,
+                        ),
+                      }
+                    : currentShop,
+                )
+
+                return response.item
+              } catch (requestError) {
+                setError(
+                  requestError instanceof Error
+                    ? requestError.message
+                    : 'Could not load bundle details.',
+                )
+                return null
+              } finally {
+                setShopBusy(false)
+              }
             }}
             onPurchaseCosmetic={(slug) => {
               void handlePurchaseCosmetic(slug)

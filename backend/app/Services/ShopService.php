@@ -253,30 +253,16 @@ class ShopService
                 'board' => $profile->equippedBoardCosmetic ? $this->formatEquippedItem($profile->equippedBoardCosmetic) : null,
                 'piece_set' => $profile->equippedPieceCosmetic ? $this->formatEquippedItem($profile->equippedPieceCosmetic) : null,
             ],
-            'items' => $items->map(function (CosmeticItem $item) use ($ownedIds, $profile): array {
-                $isStarterBundle = in_array($item->slug, [self::STARTER_BLACK_BUNDLE_SLUG, self::STARTER_WHITE_BUNDLE_SLUG], true);
-                $owned = $isStarterBundle || in_array($item->id, $ownedIds, true);
-                $equipped = match ($item->category) {
-                    'board' => $profile->equipped_board_cosmetic_id === $item->id,
-                    'piece_set' => $profile->equipped_piece_cosmetic_id === $item->id,
-                    'bundle' => $isStarterBundle || ($profile->equipped_board_cosmetic_id === $item->id && $profile->equipped_piece_cosmetic_id === $item->id),
-                    default => false,
-                };
-
-                return [
-                    'slug' => $item->slug,
-                    'name' => $item->name,
-                    'category' => $item->category,
-                    'rarity' => $item->rarity,
-                    'description' => $item->description,
-                    'price_soft_currency' => $item->price_soft_currency,
-                    'preview' => $item->preview,
-                    'assets' => null,
-                    'owned' => $owned,
-                    'equipped' => $equipped,
-                ];
-            })->values()->all(),
+            'items' => $items->map(fn (CosmeticItem $item) => $this->formatCatalogItem($item, $ownedIds, $profile, false))->values()->all(),
         ];
+    }
+
+    public function formatItemDetail(User $user, CosmeticItem $item): array
+    {
+        $profile = $user->profile ?? $user->profile()->firstOrCreate();
+        $ownedIds = $user->userCosmetics()->pluck('cosmetic_item_id')->all();
+
+        return $this->formatCatalogItem($item, $ownedIds, $profile, true);
     }
 
     private function formatEquippedItem(CosmeticItem $item): array
@@ -289,6 +275,31 @@ class ShopService
             'description' => $item->description,
             'preview' => $item->preview,
             'assets' => $item->assets,
+        ];
+    }
+
+    private function formatCatalogItem(CosmeticItem $item, array $ownedIds, $profile, bool $includeAssets): array
+    {
+        $isStarterBundle = in_array($item->slug, [self::STARTER_BLACK_BUNDLE_SLUG, self::STARTER_WHITE_BUNDLE_SLUG], true);
+        $owned = $isStarterBundle || in_array($item->id, $ownedIds, true);
+        $equipped = match ($item->category) {
+            'board' => $profile->equipped_board_cosmetic_id === $item->id,
+            'piece_set' => $profile->equipped_piece_cosmetic_id === $item->id,
+            'bundle' => $isStarterBundle || ($profile->equipped_board_cosmetic_id === $item->id && $profile->equipped_piece_cosmetic_id === $item->id),
+            default => false,
+        };
+
+        return [
+            'slug' => $item->slug,
+            'name' => $item->name,
+            'category' => $item->category,
+            'rarity' => $item->rarity,
+            'description' => $item->description,
+            'price_soft_currency' => $item->price_soft_currency,
+            'preview' => $item->preview,
+            'assets' => $includeAssets ? $item->assets : null,
+            'owned' => $owned,
+            'equipped' => $equipped,
         ];
     }
 }

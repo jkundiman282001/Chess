@@ -227,6 +227,10 @@ export function fetchShop(token: string) {
   return apiRequest<ShopState>('/shop', { token })
 }
 
+export function fetchShopItem(token: string, slug: string) {
+  return apiRequest<{ item: ShopState['items'][number] }>(`/shop/${slug}`, { token })
+}
+
 export function purchaseCosmetic(token: string, slug: string) {
   return apiRequest<{ message: string } & ShopState>('/shop/purchase', {
     method: 'POST',

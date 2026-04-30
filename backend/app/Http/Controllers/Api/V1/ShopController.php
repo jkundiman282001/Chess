@@ -23,6 +23,21 @@ class ShopController extends Controller
         return response()->json($this->shopService->formatCatalog($user, $items));
     }
 
+    public function show(Request $request, string $slug): JsonResponse
+    {
+        $user = $request->user()->loadMissing('profile.equippedBoardCosmetic', 'profile.equippedPieceCosmetic');
+        $this->shopService->ensureStarterCosmetics($user);
+
+        $item = CosmeticItem::query()
+            ->where('slug', $slug)
+            ->where('is_active', true)
+            ->firstOrFail();
+
+        return response()->json([
+            'item' => $this->shopService->formatItemDetail($user, $item),
+        ]);
+    }
+
     public function purchase(Request $request): JsonResponse
     {
         $validated = $request->validate([
